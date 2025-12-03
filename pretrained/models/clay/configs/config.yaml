@@ -1,0 +1,73 @@
+seed_everything: 108
+data:
+  data_dir: /fsx
+  size: 256
+  metadata_path: configs/metadata.yaml
+  platforms:
+    - landsat-c2l1
+    - landsat-c2l2-sr
+    - linz
+    - modis
+    - naip
+    - sentinel-1-rtc
+    - sentinel-2-l2a
+  batch_size: 1
+  num_workers: 12
+model:
+  model_size: large
+  mask_ratio: 0.75
+  norm_pix_loss: False
+  patch_size: 8
+  shuffle: True
+  metadata_path: configs/metadata.yaml
+  teacher: vit_large_patch14_reg4_dinov2.lvd142m
+  dolls: [16, 32, 64, 128, 256, 768, 1024]
+  doll_weights: [1, 1, 1, 1, 1, 1, 1]
+  lr: 5e-6
+  wd: 0.05
+  b1: 0.9
+  b2: 0.95
+  embeddings_level: mean
+trainer:
+  accelerator: gpu
+  strategy: ddp
+  devices: 8
+  num_nodes: 48
+  precision: bf16-mixed
+  log_every_n_steps: 1
+  max_epochs: 1000
+  accumulate_grad_batches: 1
+  default_root_dir: checkpoints/v1.5.0/
+  fast_dev_run: False
+  num_sanity_val_steps: 0
+  use_distributed_sampler: False
+  limit_train_batches: 0.99
+  limit_val_batches: 0.99
+  logger:
+    - class_path: lightning.pytorch.loggers.WandbLogger
+      init_args:
+        entity: developmentseed
+        project: clay
+        group: v1.5-nomrl-dinov2
+        id: 0uy3in7l
+        resume: must
+        log_model: false
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: checkpoints/v1.5.0/
+        auto_insert_metric_name: False
+        filename: mae_v1.5.0_epoch-{epoch:02d}_val-loss-{val/loss:.4f}
+        monitor: val/loss
+        mode: min
+        save_last: True
+        save_top_k: 2
+        save_weights_only: False
+        verbose: True
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: step
+    - class_path: src.callbacks_wandb.LogIntermediatePredictions
+  plugins:
+    - class_path: lightning.pytorch.plugins.io.AsyncCheckpointIO
+ckpt_path: checkpoints/v1.5.0/last.ckpt

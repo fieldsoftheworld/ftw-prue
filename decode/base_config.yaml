@@ -1,0 +1,60 @@
+experiment_name: "experiment_name"
+experiment_description: "This experiment is done for FTW 2 classes, all countries, 1 windows. For presence_only case we are not allowing it's background to contribute to the loss"
+
+data:
+  root_dir: "/path/to/ftw"
+  countries:
+    - austria
+    - belgium
+    - brazil
+    - cambodia
+    - corsica
+    - croatia
+    - denmark
+    - estonia
+    - finland
+    - france
+    - germany
+    - india
+    - kenya
+    - latvia
+    - lithuania
+    - luxembourg
+    - netherlands
+    - portugal
+    - rwanda
+    - slovakia
+    - slovenia
+    - south_africa
+    - spain
+    - sweden
+    - vietnam
+  temporal_option: "stacked"
+  crop_size: [256, 256]
+  num_samples: -1
+  n_classes: 2
+  in_channels: 4
+  presence_only: true
+
+model:
+  nfilters_init: 32
+  depth: 6
+  ftdepth: 5
+  psp_depth: 4
+  norm_type: "GroupNorm"
+  norm_groups: 4
+  nheads_start: 4
+
+train:
+  batch_size: 64
+  lr: 0.001
+  num_epochs: 200
+  patience: 10
+  num_workers: 4
+
+loss: 
+  seg_weight: 1.0
+  bound_weight: 1.0
+  dist_weight: 5.0
+
+save_dir: "./logs-decode"

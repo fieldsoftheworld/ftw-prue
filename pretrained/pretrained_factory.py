@@ -1,4 +1,6 @@
 import torch
+import torch.nn as nn
+from ftw_tools.models.segmentor import SegmentationHead
 from .models.clay.finetune.segment.factory import SegmentEncoder as ClayEncoder
 from .models.TerraFM.terrafm_segment import TerraFMEncoderWrapper as TerraFMEncoder
 from .models.dinov3.dinov3_segmentor import SegmentEncoder as DinoV3Encoder
@@ -53,64 +55,136 @@ def get_encoder(model_name: str, device: torch.device, weights_path: str=None):
         raise ValueError(f"Unsupported model: {model_name}")
 
 
-import torch
+class FullGFMModel(nn.Module):
+    """
+    Generic encoder→decoder segmentation model.
 
-# ... (Assume get_encoder is defined or imported, and works for CLAY's dict input)
+    Accepts both:
+      - dict inputs (CLAY metadata-aware mode)
+      - tensor inputs for other backbones
+    """
+
+    def __init__(
+        self,
+        backbone_name: str,
+        decoder_kwargs: dict,
+        weights_path: str | None,
+        device: torch.device,
+    ):
+        super().__init__()
+
+        # Encoder from factory
+        self.encoder = get_encoder(
+            model_name=backbone_name,
+            device=device,
+            weights_path=weights_path
+        )
+
+        # Decoder from segmentation module
+        self.decoder = SegmentationHead(**decoder_kwargs)
+
+    def forward(self, x):
+        feats = self.encoder(x)
+        # import code; code.interact(local=locals())
+        return self.decoder(feats)
+
+
+def get_full_model(backbone, decoder_kwargs, weights_path, device):
+    """
+    Exposed factory function so trainer can request full model.
+    """
+    return FullGFMModel(
+        backbone_name=backbone,
+        decoder_kwargs=decoder_kwargs,
+        weights_path=weights_path,
+        device=device,
+    )
+
+
+MODEL_CONFIGS = {
+    "croma":    {"input": 120, "patch": 8,  "dim": 768},
+    "galileo":  {"input": 256, "patch": 4,  "dim": 768},
+    "decur":    {"input": 224, "patch": 16, "dim": 384},
+    "dofa":     {"input": 224, "patch": 16, "dim": 1024},
+    "prithvi":  {"input": 224, "patch": 16, "dim": 1024},
+    "satlas":   {"input": 256, "patch": 16, "dim": 768},
+    "softcon":  {"input": 224, "patch": 14, "dim": 384},
+    "clay":     {"input": 256, "patch": 8,  "dim": 1024},
+    "dinov3":   {"input": 256, "patch": 16, "dim": 1024},
+    "terrafm":  {"input": 256, "patch": 16, "dim": 768},
+    "terramind": {"input": 256, "patch": 16, "dim": 768},
+}
+
 
 if __name__ == "__main__":
+
+    torch.manual_seed(0)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_names = ["clay", "terrafm", "dinov3", "terramind"]
+
     weights_paths = {
         "clay": "/projects/bdbk/subashk/ckpts/CLAY/clay-v1.5.ckpt",
         "terrafm": "/projects/bdbk/subashk/ckpts/TERRAFM/TerraFM-B.pth",
         "dinov3": "/projects/bdbk/subashk/ckpts/DINOV3/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth",
         "terramind": None,
     }
-    
-    # Define batch and image dimensions once
-    B, C, H, W = 2, 4, 256, 256
-    
-    for name in model_names:
-        print(f"\n🔹 Testing encoder: {name}")
-        encoder = get_encoder(name, device=device, weights_path=weights_paths[name])
-        if  name == "dinov3":
-            C = 3
-        else:
-            C = 4
-        if name == "clay":
-            images = torch.randn(B, C, H, W, dtype=torch.float32).to(device)
 
-            # 2. Time tensor: [B, 4] (temporal encoding: sin/cos of week and hour)
-            times = torch.randn(B, 4, dtype=torch.float32).to(device)
+    B = 2
+    num_classes = 3
 
-            # 3. Lat/Lon tensor: [B, 4] (spatial encoding: sin/cos of lat and lon)
-            latlons = torch.randn(B, 4, dtype=torch.float32).to(device)
+    for name, cfg in MODEL_CONFIGS.items():
+        if name in ["clay", "terrafm", "dinov3", "terramind"]:
+            print(f"\n🔹 Testing Backbone={name} | dim={cfg['dim']} | patch={cfg['patch']} ")
 
-            # 4. GSD tensor: [1] (Ground Sampling Distance, e.g., 10m)
-            gsd = torch.tensor([10.0], dtype=torch.float32).to(device)
+            # Build segmentation head configuration
+            decoder_kwargs = dict(
+                num_classes=num_classes,
+                dim=cfg["dim"],
+                patch_size=cfg["patch"],
+                fusion_type="mlp",
+                decoder_type="conv_w_aspp",
+                original_input_size=cfg["input"],
+            )
 
-            # 5. Wavelengths tensor: [C] -> [4] (Wavelengths of the 4 bands)
-            waves = torch.tensor(
-                [0.492, 0.559, 0.665, 0.833], dtype=torch.float32
+            # Instantiate full model
+            model = get_full_model(
+                backbone=name,
+                decoder_kwargs=decoder_kwargs,
+                weights_path=weights_paths.get(name),
+                device=device
             ).to(device)
 
-            x = {
-                "platform": "sentinel-2-l2a",
-                "image": images,
-                "time": times,
-                "latlon": latlons,
-                "gsd": gsd,
-                "waves": waves,
-            }
-            print(f"   Created **CLAY dictionary batch**. Input Keys: {list(x.keys())}")
-            
-        else:
-            # --- Other models require only the image tensor: [B, C, H, W] ---
-            x = torch.randn(B, C, H, W).to(device)
-            print(f"   Created standard tensor batch with shape {x.shape}.")
-        
-        # Perform inference using the prepared input (x)
-        with torch.no_grad():
-            feats = encoder(x)
-            
-        print(f"   ✅ Output feature shape: {feats.shape}")
+            # Create valid encoder input
+            if name == "clay":
+                # Two windows → channels = 2 * 4
+                C = 4 * 2
+                images = torch.randn(B, C, cfg["input"], cfg["input"]).to(device)
+
+                time = torch.randn(B, 8).to(device)  # 4+4 split for windows
+
+                latlon = torch.randn(B, 4).to(device)
+                gsd = torch.tensor([10.0], dtype=torch.float32).to(device)
+                waves = torch.tensor([0.492, 0.559, 0.665, 0.833],
+                                    dtype=torch.float32).to(device)
+
+                x = dict(
+                    platform="sentinel-2-l2a",
+                    image=images,
+                    time=time,
+                    latlon=latlon,
+                    gsd=gsd,
+                    waves=waves,
+                )
+                print(f"   ✔ CLAY test batch constructed")
+
+            else:
+                # Two windows means 2 fusion views
+                C = 3*2 if name == "dinov3" else 4*2
+                x = torch.randn(B, C, cfg["input"], cfg["input"]).to(device)
+                print(f"   ✔ Tensor batch constructed: {x.shape}")
+
+            # Forward pass sanity check
+            model.eval()
+            with torch.no_grad():
+                out = model(x)
+
+            print(f"   ✅ Output segmentation logits shape: {tuple(out.shape)}")

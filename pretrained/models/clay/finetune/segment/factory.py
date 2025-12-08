@@ -121,11 +121,14 @@ class SegmentEncoder(Encoder):
             datacube["time"],  # [B 4/8]
             datacube["latlon"],  # [B 4]
             datacube["gsd"],  # 1
-            datacube["waves"],  # [N]
+            datacube["waves"],  # [N] or [B,N]
         )
 
         B, C, H, W = cube.shape
-        
+        if waves.ndim == 2:
+            waves = waves[0]  # [N] assume all batch have same wavelengths
+        if len(gsd) == B:
+            gsd = gsd[0]  # [1] assume all batch have same gsd
         if C == len(waves):
             # Patchify and create embeddings per patch
             patches, waves_encoded = self.to_patch_embed(cube, waves)  # [B L D]
@@ -133,7 +136,6 @@ class SegmentEncoder(Encoder):
         elif C == 2 * len(waves):
             # Patchify and create embeddings per patch
             patches_a, waves_encoded = self.to_patch_embed(cube[:, :len(waves), :, :], waves)
-            
             patches_a = self.add_encodings(patches_a, time[:,:4], latlon, gsd)  # [B L D]
             patches_b = self.to_patch_embed(cube[:, 4:, :, :], waves)[0]
             patches_b = self.add_encodings(patches_b, time[:,4:], latlon, gsd)  # [B L D]

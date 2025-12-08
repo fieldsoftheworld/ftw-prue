@@ -30,12 +30,11 @@ model:
     lr: 1e-3
     patience: 100
     model_kwargs:
-      fuser: mlp                                      # "concat" | "mlp" | "bca"
-      decoder: conv_w_aspp                            # "conv" | "conv_w_aspp" | "anyup"
+      fuser: mlp                                    
+      decoder: conv_w_aspp                            # "conv_light" | "conv_w_aspp"
       hidden_dim: 1024
       original_input_size: 256
       patch_size: 8
-      metadata_path: configs/metadata.yaml
 data:
   class_path: ftw_tools.torchgeo.datamodules.FTWDataModule
   init_args:
@@ -121,10 +120,10 @@ data:
       - sweden
       - vietnam
   dict_kwargs:
-    root: /data/ftw
-    metadata_path: configs/metadata.yaml
+    root: ./data/ftw
+    metadata_path: ./configs/metadata.yaml
     load_boundaries: true
     input_type: images_noaug                                       # "images" or "features" or "images_noaug"
     feat_root: null                                                #  null or "path-to-gfm-feats/precomputed_feats/clay" 
-    preprocessing: none                                            #  clay | croma | decur | dofa | dinov3 | galileo | prithvi | satlas | softcon | terrafm | terramind
+    preprocessing: clay                                            #  none or clay | croma | decur | dofa | dinov3 | galileo | prithvi | satlas | softcon | terrafm | terramind
 seed_everything: 7

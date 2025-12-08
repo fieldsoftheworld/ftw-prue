@@ -15,7 +15,7 @@ import json
 from datetime import datetime, timedelta
 from functools import lru_cache
 import math
-import Box
+from box import Box
 import yaml
 # Harvest day raster paths from https://github.com/ucg-uv/research_products/tree/main
 SUMMER_START_RASTER_PATH = "assets/global_crop_calendar/sc_sos_3x3_v2_cog.tiff"
@@ -168,7 +168,7 @@ class preprocess_dinov3:
         self.norm_constant = norm_constant
 
     def __call__(self, sample: dict) -> dict:
-        image = sample["image"] / self.norm_constant        # [C,H,W]
+        image = sample["image"][:3, :, :] / self.norm_constant        # [C,H,W]
         mean = self.mean.to(image.device).view(-1,1,1)  # [C,1,1]
         std  = self.std.to(image.device).view(-1,1,1)
         sample["image"] = (image - mean) / std
@@ -196,7 +196,7 @@ class preprocess_clay:
         return sample
 
 
-def preprocess_none(sample: dict) -> dict:
+def preprocess_none(sample: dict, **kwargs) -> dict:
     """No preprocessing; return sample as-is."""
     return sample
 
@@ -212,12 +212,13 @@ class PreProcessorWrapper:
 
         Preprocessor = preprocessor_map[preprocess_type]
 
+        self.kwargs = kwargs
+
         if isinstance(Preprocessor, type):
             self.preprocessor = Preprocessor(**kwargs)
             self.is_function = False
         else:
             self.preprocessor = Preprocessor
-            self.kwargs = kwargs
             self.is_function = True
 
     def __call__(self, sample: dict) -> dict:
@@ -225,6 +226,7 @@ class PreProcessorWrapper:
             return self.preprocessor(sample, **self.kwargs)
         else:
             return self.preprocessor(sample)
+
 
     @property
     def gsd(self) -> Union[torch.Tensor, None]:

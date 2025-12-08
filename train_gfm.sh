@@ -1,34 +1,27 @@
 #!/bin/bash
-#SBATCH --account=bdbk-tgirails
-#SBATCH --partition=gpu
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --gpus-per-task=1
-#SBATCH --mem=64G
-#SBATCH --time=08:00:00
-#SBATCH --job-name=ftw-train  # overridden by sbatch --job-name
-
-# ==============================
-# Setup
-# ==============================
 set -e
-export EXP_NAME=${SLURM_JOB_NAME:-ftw-train}
-export WORK_DIR="/u/subashk/storage/ftw-ablation/FTW-Bakeoff/ftw-baselines-2"
+
+# ==============================
+# EXPERIMENT SELECTION
+# ==============================
+export EXP_NAME=${1:-clay}               # clay / terrafm / terramind / dinov3
+export INPUT_TYPE=${2:-images_noaug}     # images_noaug | features
+export FEAT_ROOT=${3:-""}                # required if input type = features
+
+export WORK_DIR="$(pwd)"
 export LOG_DIR="$WORK_DIR/logs"
+mkdir -p "$LOG_DIR"
 export CONFIG_PATH="$WORK_DIR/configs/release/3_class/vit.yaml"
-PROJECT="FTW-pretrained-ablation-final"
+export PROJECT="FTW-gfm"
+ENV_NAME="ftw-prue"
 
-cd "$WORK_DIR"
-source /u/subashk/miniconda3/bin/activate ftw
 
-echo "🚀 Starting GPU training for: $EXP_NAME"
+echo "🚀 Running: EXP=$EXP_NAME   INPUT=$INPUT_TYPE"
 echo "Working directory: $WORK_DIR"
-echo "Logs → $LOG_DIR/${EXP_NAME}.log"
 echo "=============================="
 
 # ==============================
-# Per-model configuration
+# Model config lookup
 # ==============================
 case $EXP_NAME in
   clay)
@@ -55,22 +48,72 @@ case $EXP_NAME in
     hidden_dim=768;  patch=16; input_size=224 ;;
   *)
     echo "❌ Unknown experiment: $EXP_NAME"
-    echo "Valid options: clay | croma | decur | dofa | dinov3 | galileo | prithvi | satlas | softcon | terrafm | terramind"
     exit 1 ;;
 esac
 
 # ==============================
-# Launch training
+# Metadata / backbone behavior
+# ==============================
+if [ "$INPUT_TYPE" = "features" ]; then
+    MODEL_TYPE="pretrained"
+    BACKBONE="null"
+
+    # require feat_root
+    if [ -z "$FEAT_ROOT" ]; then
+        echo "❌ ERROR: input_type=features requires feat_root path."
+        exit 1
+    fi
+
+    DATA_ARGS="
+      --data.input_type features
+      --data.dict_kwargs.feat_root $FEAT_ROOT
+      --data.dict_kwargs.metadata_path null
+      --data.preprocessing null
+    "
+
+else
+    MODEL_TYPE="gfm"
+    BACKBONE="$EXP_NAME"
+
+    if [ "$EXP_NAME" = "clay" ]; then
+        DATA_ARGS="
+          --data.input_type images_noaug
+          --data.preprocessing clay
+          --data.dict_kwargs.metadata_path $WORK_DIR/configs/metadata.yaml
+        "
+    else
+        DATA_ARGS="
+          --data.input_type images_noaug
+          --data.preprocessing $EXP_NAME
+          --data.dict_kwargs.metadata_path null
+        "
+    fi
+fi
+
+# ==============================
+# Launch Training
 # ==============================
 python -m ftw_tools.cli model fit \
   --config "$CONFIG_PATH" -- \
+  --model.model "$MODEL_TYPE" \
+  --model.backbone "$BACKBONE" \
   --model.model_kwargs.hidden_dim "$hidden_dim" \
   --model.model_kwargs.patch_size "$patch" \
   --model.model_kwargs.original_input_size "$input_size" \
-  --data.dict_kwargs.feat_root "/projects/benq/ftw-data/precomputed_feats/${EXP_NAME}" \
-  --log_mode online \
+  $DATA_ARGS \
+  --log_mode disabled \
   --project "$PROJECT" \
   --run_name "$EXP_NAME" \
-  > "$LOG_DIR/${EXP_NAME}.log" 2>&1
+  > "$LOG_DIR/${EXP_NAME}_${INPUT_TYPE}.log" 2>&1
 
-echo "✅ Training completed for: $EXP_NAME"
+echo "✅ Finished: $EXP_NAME with $INPUT_TYPE"
+
+
+# ==============================
+# Example usage:
+
+# cd ftw-prue
+# ./train_gfm.sh clay images_noaug
+# ./train_gfm.sh clay features /path-to/precomputed_feats/clay
+
+# ==============================

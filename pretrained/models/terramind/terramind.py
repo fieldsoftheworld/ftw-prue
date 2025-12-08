@@ -65,7 +65,13 @@ class SegmentEncoder(nn.Module):
             patches = self.model(img_tensor)  # (B, num_patches, embed_dim)
             last_layer_patches = patches[-1]  # Take the last layer's output
             return last_layer_patches
-
-        raise ValueError(
-            f"Expected 4 channels [BLUE, GREEN, RED, NIR_BROAD], got C={C}."
-        )
+        elif C == 8:
+            patches_a = self.model(img_tensor[:, :4, :, :])  # (B, num_patches, embed_dim)
+            last_layer_patches_a = patches_a[-1]  # Take the last layer's output
+            patches_b = self.model(img_tensor[:, 4:, :, :])  # (B, num_patches, embed_dim)
+            last_layer_patches_b = patches_b[-1]  # Take the last layer's output
+            return torch.stack([last_layer_patches_a, last_layer_patches_b], dim=1)  # (B, 2, num_patches, embed_dim)
+        else:
+            raise ValueError(
+                f"Expected 4/8 channels [BLUE, GREEN, RED, NIR_BROAD], got C={C}."
+            )

@@ -72,9 +72,14 @@ class FTWDataModule(LightningDataModule):
         self.load_boundaries = kwargs.pop("load_boundaries", False)
         self.input_type = kwargs.pop("input_type", "images")
         self.feat_root = kwargs.pop("feat_root", None)
+        if self.input_type == "features" and self.feat_root is None:
+            raise ValueError("feat_root must be specified when input_type is 'features'")
+        if self.input_type == "features" and self.feat_root is not None:
+            self.preprocessing = "none"
+        else:
+            self.preprocessing = preprocessing
         self.temporal_options = temporal_options
         self.num_samples = num_samples
-        self.preprocessing = preprocessing
         self.metadata_path = metadata_path
 
         if self.input_type == "images":

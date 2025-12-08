@@ -94,7 +94,10 @@ class FTW(NonGeoDataset):
 
         self.countries = countries
         assert split in self.valid_splits
-        self.preprocessing = PreProcessorWrapper(preprocessing,metadata_path)
+        if preprocessing == "clay":
+            self.preprocessing = PreProcessorWrapper(preprocessing, metadata_path=metadata_path)
+        else:
+            self.preprocessing = PreProcessorWrapper(preprocessing)
         self.checksum = checksum
         self.load_boundaries = load_boundaries
         self.temporal_options = temporal_options
@@ -368,7 +371,7 @@ class FTW(NonGeoDataset):
                 )
                 
                 # Always collect the image tensor
-                images.append(data_dict["image"])
+                images.append(self.preprocessing(data_dict)['image'])
                 
                 # Conditionally collect time vector and static metadata
                 if self.with_metadata:
@@ -392,7 +395,6 @@ class FTW(NonGeoDataset):
                     
             # --- 3. Finalize Sample Dictionary ---
             sample["image"] = image
-            sample = self.preprocessing(sample)
             
             if self.with_metadata:
                 # Combine time vectors and add all static metadata

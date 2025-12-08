@@ -2,26 +2,25 @@ trainer:
   max_epochs: 30
   log_every_n_steps: 10
   accelerator: gpu
-  default_root_dir: ./logs/sweeps/pretrained/vit
+  default_root_dir: logs/FTW-Release-Full-3-class-ViT
   devices: 
     - 0
-  # accumulate_grad_batches: 4
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
-        monitor: val/object_f1       # ✅ track object-level F1 metric
-        mode: max                    # ✅ maximize F1 score
-        save_top_k: 1                # ✅ only keep the best checkpoint
-        save_last: true              # ✅ always save last checkpoint too
+        monitor: val/object_f1       
+        mode: max                    
+        save_top_k: 1                
+        save_last: true              
         filename: "{epoch}-{val_object_f1:.4f}"
         auto_insert_metric_name: false
 model:
   class_path: ftw_tools.torchgeo.trainers.CustomSemanticSegmentationTask
   init_args:
     class_weights: [0.04,0.08,0.88]
-    loss: "ce" # options tested: 'ce' or  'dice' or 'ce+dice' or 'logcoshdice' or 'logcoshdice+ce'
-    model: pretrained                                 # "pretrained" or "clay" or "terrafm" or "dinov3"
-    backbone: null                              # null or "clay" or "terrafm" or "dinov3"
+    loss: "ce"                                  # options tested: 'ce' or  'dice' or 'ce+dice' or 'logcoshdice' or 'logcoshdice+ce'
+    model: gfm                                  # pretrained | clay | croma | decur | dofa | dinov3 | galileo | prithvi | satlas | softcon | terrafm | terramind
+    backbone: clay                              # null | clay | croma | decur | dofa | dinov3 | galileo | prithvi | satlas | softcon | terrafm | terramind
     weights: true
     patch_weights : false
     in_channels: 8
@@ -36,7 +35,7 @@ model:
       hidden_dim: 1024
       original_input_size: 256
       patch_size: 8
-      metadata_path: /u/subashk/storage/ftw-ablation/FTW-Bakeoff/ftw-baselines-2/configs/metadata.yaml
+      metadata_path: configs/metadata.yaml
 data:
   class_path: ftw_tools.torchgeo.datamodules.FTWDataModule
   init_args:
@@ -122,9 +121,10 @@ data:
       - sweden
       - vietnam
   dict_kwargs:
-    root: /projects/benq/ftw-data/data/ftw
-    metadata_path: /u/subashk/storage/ftw-ablation/FTW-Bakeoff/ftw-baselines-2/configs/metadata.yaml
+    root: /data/ftw
+    metadata_path: configs/metadata.yaml
     load_boundaries: true
-    input_type: features                                          # "images" or "features" or "images+features"
-    feat_root: /projects/benq/ftw-data/precomputed_feats/clay     # null or "/projects/benq/ftw-data/precomputed_feats/clay" 
+    input_type: images_noaug                                       # "images" or "features" or "images_noaug"
+    feat_root: null                                                #  null or "path-to-gfm-feats/precomputed_feats/clay" 
+    preprocessing: none                                            #  clay | croma | decur | dofa | dinov3 | galileo | prithvi | satlas | softcon | terrafm | terramind
 seed_everything: 7

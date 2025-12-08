@@ -13,27 +13,11 @@ from torch.utils.data import DataLoader, Subset
 from ftw_tools.torchgeo.datasets import FTW
 
 
-class preprocess:
-    def __init__(self, input_type="images"):
-        self.input_type = input_type
-
-    def __call__(self, sample):
-        if "images" in self.input_type:
-            sample["image"] = sample["image"] / 3000
-        return sample
-
-
-
 def randomChannelShuffle(x):
     if torch.rand(1) < 0.5:
         return x
     return torch.cat([x[:, 4:8], x[:, :4]], dim=1)
 
-def randomFeatureShuffle(x):
-    """Randomly swap the two temporal feature windows stacked on dim=1 (B, 2, N, D)."""
-    if torch.rand(1) < 0.5:
-        return x
-    return x.flip(dims=[1])
 
 class FTWDataModule(LightningDataModule):
     """LightningDataModule implementation for the FTW dataset."""
@@ -53,6 +37,8 @@ class FTWDataModule(LightningDataModule):
         num_samples: int = -1,
         random_shuffle: bool = False,
         resize_factor: Optional[float] = None,
+        preprocessing: str = "none",
+        metadata_path: str = None,
         **kwargs: Any,
     ) -> None:
         """Initialize a new FTWDataModule instance.
@@ -68,6 +54,8 @@ class FTWDataModule(LightningDataModule):
             test_countries: List of countries to use test splits from
             random_shuffle: Whether to use random channel shuffle augmentation
             resize_factor: Optional resize factor to upsample the images
+            preprocessing: Preprocessing type to apply to the images.
+            metadata_path: Path to metadata file.
             **kwargs: Additional keyword arguments passed to
                 :class:`~src.datasets.FTW`.
         """
@@ -86,6 +74,8 @@ class FTWDataModule(LightningDataModule):
         self.feat_root = kwargs.pop("feat_root", None)
         self.temporal_options = temporal_options
         self.num_samples = num_samples
+        self.preprocessing = preprocessing
+        self.metadata_path = metadata_path
 
         if self.input_type == "images":
             # for the temporal option windowA, windowB and median we will have 4 channel input
@@ -136,12 +126,8 @@ class FTWDataModule(LightningDataModule):
                 K.Normalize(mean=self.mean, std=self.std), data_keys=None
             )
 
-        if self.input_type == "features":
+        if self.input_type in ["features", "images_noaug"]: #No augmentations for features and GFM experiments for now
             augs = []
-            if random_shuffle:
-                print("Using random feature shuffle augmentation")
-                augs.append(kornia.contrib.Lambda(randomFeatureShuffle))
-
             self.train_aug = K.AugmentationSequential(*augs, data_keys=None)
             self.aug = K.AugmentationSequential(data_keys=None)
 
@@ -157,6 +143,8 @@ class FTWDataModule(LightningDataModule):
                 num_samples=self.num_samples,
                 input_type=self.input_type,
                 feat_root=self.feat_root,
+                preprocessing=self.preprocessing,
+                metadata_path=self.metadata_path,
             )
         if stage in ["fit", "validate"]:
             self.val_dataset = FTW(
@@ -168,6 +156,8 @@ class FTWDataModule(LightningDataModule):
                 num_samples=self.num_samples,
                 input_type=self.input_type,
                 feat_root=self.feat_root,
+                preprocessing=self.preprocessing,
+                metadata_path=self.metadata_path,
             )
         if stage == "test":
             self.test_dataset = FTW(
@@ -179,6 +169,8 @@ class FTWDataModule(LightningDataModule):
                 num_samples=self.num_samples,
                 input_type=self.input_type,
                 feat_root=self.feat_root,
+                preprocessing=self.preprocessing,
+                metadata_path=self.metadata_path,
             )
 
     def train_dataloader(self) -> Any:
@@ -216,13 +208,3 @@ class FTWDataModule(LightningDataModule):
                 else:
                     batch = self.aug(batch)
         return batch
-
-    def plot(self, *args: Any, **kwargs: Any):
-        fig: Figure | None = None
-        dataset = self.val_dataset
-        if isinstance(dataset, Subset):
-            dataset = dataset.dataset
-        if dataset is not None:
-            if hasattr(dataset, "plot"):
-                fig = dataset.plot(*args, **kwargs)
-        return fig

@@ -84,4 +84,6 @@ data:
   dict_kwargs:
     root: data/ftw
     load_boundaries: true
+    input_type: "images" 
+    feat_root: null 
 seed_everything: 7

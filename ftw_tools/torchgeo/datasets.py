@@ -6,16 +6,14 @@ from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, Union
 
 import geopandas as gpd
-import matplotlib.pyplot as plt
 import numpy as np
 import rasterio
 import torch
-from matplotlib.figure import Figure
 from torch import Tensor
 from torchgeo.datasets import NonGeoDataset, RasterDataset
 
 from ftw_tools.settings import ALL_COUNTRIES, TEMPORAL_OPTIONS
-from ftw_tools.utils import validate_checksums
+from ftw_tools.utils import validate_checksums, load_with_metadata, PreProcessorWrapper
 
 
 class SingleRasterDataset(RasterDataset):
@@ -49,7 +47,7 @@ class FTW(NonGeoDataset):
         root: str = "data/ftw",
         countries: Union[Sequence[str], str] = None,
         split: str = "train",
-        transforms: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None,
+        preprocessing: str = "none",
         checksum: bool = False,
         load_boundaries: bool = False,
         temporal_options: str = "stacked",
@@ -57,6 +55,7 @@ class FTW(NonGeoDataset):
         num_samples: int = -1,
         input_type: str = "images",
         feat_root: Optional[str] = None,
+        metadata_path: str = None
     ) -> None:
         """Initialize a new FTW dataset instance.
 
@@ -65,7 +64,7 @@ class FTW(NonGeoDataset):
                 country folder
             countries: the countries to load the dataset from, e.g. "france"
             split: string specifying what split to load (e.g. "train", "val", "test")
-            transforms: a function/transform that takes input sample and its target as
+            preprocessing: a string specifying the preprocessing to apply to each
                 entry and returns a transformed version
             checksum: if True, check the MD5 of the downloaded files (may be slow)
             load_boundaries: if True, load the 3 class masks with boundaries
@@ -73,6 +72,7 @@ class FTW(NonGeoDataset):
             swap_order: if True, swap the order of temporal data (i.e. use window A first)
             input_type: if "images" we are using raw images, if "features" we are using precomputed features 
             feat_root: root directory where precomputed features are stored
+            metadata_path: path to metadata file
         Raises:
             AssertionError: if ``countries`` argument is invalid
             AssertionError: if ``split`` argument is invalid
@@ -94,12 +94,17 @@ class FTW(NonGeoDataset):
 
         self.countries = countries
         assert split in self.valid_splits
-        self.transforms = transforms
+        self.preprocessing = PreProcessorWrapper(preprocessing,metadata_path)
         self.checksum = checksum
         self.load_boundaries = load_boundaries
         self.temporal_options = temporal_options
         self.num_samples = num_samples
         self.swap_order = swap_order
+        if metadata_path is None:
+            self.with_metadata = False
+        else:
+            self.with_metadata = True
+            self.metadata_path = metadata_path
 
         if self.load_boundaries:
             print("Loading 3 Class Masks, with Boundaries")
@@ -128,18 +133,15 @@ class FTW(NonGeoDataset):
         all_img_filenames = []
         self.feat_filenames = []
         all_feat_filenames = []
-        ignore_list = ["g14-2_00059_7","g50_00037_0","g2_00036_9","g25_00014_11"]
+        ignore_list = ["g14-2_00059_7","g50_00037_0","g2_00036_9","g25_00014_11"] # filter out some bad samples for which I had corrupted features extracted/saved??
         
         for country in self.countries:
-            if country == "latvia":
-                country_root =  "/projects/benq/ftw-data/latvia" #Subash: HARD CODED AS FOR SOME REASON LATVIA DATA IS IN DIFFERENT PATH and I DON'T HAVE PERMISSION TO COPY
-            else:
-                country_root = os.path.join(self.root, country)
+            country_root = os.path.join(self.root, country)
             chips_fn = os.path.join(country_root, f"chips_{country}.parquet")
             chips_df = gpd.read_parquet(str(chips_fn))
             chips_df = chips_df[chips_df["split"] == split]
             aoi_ids = chips_df["aoi_id"].values
-            aoi_ids = [id for id in aoi_ids if id not in ignore_list]  # filter out some bad samples
+            aoi_ids = [id for id in aoi_ids if id not in ignore_list]  
             for idx in aoi_ids:
                 window_b_fn = Path(
                     os.path.join(country_root, "s2_images/window_b", f"{idx}.tif")
@@ -249,16 +251,12 @@ class FTW(NonGeoDataset):
                 print(f"Invalid country {country}")
                 return False
 
-            if country == "latvia":
-                country_dir =  "/projects/benq/ftw-data/latvia"
-            else:
-                country_dir: str = os.path.join(self.root, country)
+            country_dir: str = os.path.join(self.root, country)
             if not os.path.exists(country_dir):
                 print(f"Country directory {country_dir} not found")
                 return False
 
             chips_fns = list(Path(country_dir).glob(f"chips_*.parquet"))
-            # boundaries_fns = list(Path(country_dir).glob(f"boundaries_*.parquet"))
             if len(chips_fns) != 1:
                 print(f"Country {country} does not have chips file")
                 return False
@@ -314,7 +312,6 @@ class FTW(NonGeoDataset):
             window_a_feat = np.load(feat_filenames["window_a_feats"])["embedding"]
 
 
-            # Convert NumPy arrays → torch tensors efficiently (no GPU)
             window_b_feat = reshape_feat(torch.from_numpy(window_b_feat).float())
             window_a_feat = reshape_feat(torch.from_numpy(window_a_feat).float())
 
@@ -341,51 +338,73 @@ class FTW(NonGeoDataset):
         
         if "images" in self.input_type:
             img_filenames = self.img_filenames[index]
+            
+            # Lists to collect the components
             images = []
+            time_vectors = [] 
+            metadata_dict = None
 
+            current_gsd = self.preprocessing.gsd
+            current_waves = self.preprocessing.waves
+            
+            # --- 1. Determine and Load Windows ---
+            windows_to_load = []
             if self.temporal_options in ("stacked", "median", "windowB", "rgb"):
-                with rasterio.open(img_filenames["window_b"]) as f:
-                    window_b_img = f.read()
-                    if self.temporal_options == "rgb":  # select 3 channels only
-                        window_b_img = window_b_img[:3]
-                    images.append(window_b_img)
-
+                windows_to_load.append("window_b")
             if self.temporal_options in ("stacked", "median", "windowA", "rgb"):
-                with rasterio.open(img_filenames["window_a"]) as f:
-                    window_a_img = f.read()
-                    if self.temporal_options == "rgb":  # select 3 channels only
-                        window_a_img = window_a_img[:3]
-                    images.append(window_a_img)
-
+                windows_to_load.append("window_a")
             if self.temporal_options == "random_window":
-                if random.random() < 0.5:
-                    with rasterio.open(img_filenames["window_a"]) as f:
-                        window_a_img = f.read()
-                    images.append(window_a_img)
-                else:
-                    with rasterio.open(img_filenames["window_b"]) as f:
-                        window_b_img = f.read()
-                    images.append(window_b_img)
+                windows_to_load.append("window_a" if random.random() < 0.5 else "window_b")
+            
+            # Process the determined windows
+            for window_key in windows_to_load:
+                # Load the data dictionary
+                data_dict = load_with_metadata(
+                    image_path=img_filenames[window_key], 
+                    root_data_path=self.root,
+                    gsd=current_gsd,                   
+                    waves=current_waves,               
+                    metadata_on=self.with_metadata
+                )
+                
+                # Always collect the image tensor
+                images.append(data_dict["image"])
+                
+                # Conditionally collect time vector and static metadata
+                if self.with_metadata:
+                    time_vectors.append(data_dict["time"])
+                    if metadata_dict is None:
+                        # Store the first dictionary for static metadata
+                        metadata_dict = data_dict 
 
+            # Handle swapping order
             if self.swap_order and len(images) == 2:
                 images = [images[1], images[0]]
+                if self.with_metadata:
+                    time_vectors = [time_vectors[1], time_vectors[0]]
 
+            # --- 2. Image Combination Logic ---
             if self.temporal_options == "median":
-                images = np.array(images).astype(np.int32)
-                image = np.median(images, axis=0).astype(np.int32)
+                images_np = np.stack([img.numpy() for img in images], axis=0).astype(np.float32)
+                image = torch.from_numpy(np.median(images_np, axis=0)).float()
             else:
-                image = np.concatenate(images, axis=0).astype(np.int32)
+                image = torch.cat(images, dim=0).float()
+                    
+            # --- 3. Finalize Sample Dictionary ---
+            sample["image"] = image
+            sample = self.preprocessing(sample)
+            
+            if self.with_metadata:
+                # Combine time vectors and add all static metadata
+                sample["time"] = torch.cat(time_vectors, dim=0) if len(time_vectors) > 1 else time_vectors[0]
+                sample["latlon"] = metadata_dict["latlon"]
+                sample["gsd"] = metadata_dict["gsd"]
+                sample["waves"] = metadata_dict["waves"]
+                sample["platform"] = metadata_dict["platform"]
 
-            image = torch.from_numpy(image).float()
-
+            # --- 4. Load Mask and Apply Transforms ---
             with rasterio.open(img_filenames["mask"]) as f:
                 mask = f.read(1)
-            mask = torch.from_numpy(mask).long()
-
-            sample["image"] = image
-            sample["mask"] = mask
-
-            if self.transforms is not None and self.input_type == "images":
-                sample = self.transforms(sample)
+            sample["mask"] = torch.from_numpy(mask).long()
 
         return sample

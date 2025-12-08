@@ -43,15 +43,16 @@ def load_image(path: str, select_rgb: bool = False):
     return torch.from_numpy(img), lat, lon
 
 
-
-# ============================================================
-# 2️⃣ NORMALIZATION HELPERS
-# ============================================================
 def preprocess_terrafm(sample: dict, norm_const=3000.0) -> dict:
     """Normalize Sentinel-2 reflectance for TerraFM (L2A scaled by 10 000)."""
     sample["image"] = sample["image"] / norm_const
     return sample
 
+
+def preprocess_terramind(sample: dict, norm_const=3000.0) -> dict:
+    """Normalize Sentinel-2 reflectance for TerraMind (L2A scaled by 10 000)."""
+    sample["image"] = sample["image"] / norm_const
+    return sample
 
 class preprocess_dinov3:
     def __init__(self, mean=None, std=None, norm_constant=3000.0):
@@ -132,9 +133,7 @@ def extract_season_dates(json_path):
         "window_b": get_median_date(window_b_start, window_b_end),
     }
 
-# ============================================================
-# 4️⃣ CLAY-SPECIFIC PREPARATION
-# ============================================================
+
 def prepare_clay_batch(
     image_paths: list[str],
     device: torch.device,

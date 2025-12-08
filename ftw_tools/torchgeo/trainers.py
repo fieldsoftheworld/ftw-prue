@@ -291,7 +291,20 @@ class CustomSemanticSegmentationTask(BaseTask):
                                            decoder_type=model_kwargs["decoder"],
                                            original_input_size=model_kwargs['original_input_size']
                                            )
-
+        elif model == "gfm":
+            from ...pretrained.pretrained_factory import get_encoder
+            from ..models.segmentor import SegmentationHead
+            self.encoder = get_encoder(model_name=backbone, 
+                                              device=self.device, 
+                                              weights_path=weights if isinstance(weights, str) else None)
+            
+            self.decoder = SegmentationHead(num_classes=num_classes, 
+                                           dim=model_kwargs['hidden_dim'], 
+                                           patch_size=model_kwargs['patch_size'],
+                                           fusion_type=model_kwargs["fuser"], 
+                                           decoder_type=model_kwargs["decoder"],
+                                           original_input_size=model_kwargs['original_input_size']
+                                           )
         else:
             raise ValueError(
                 f"Model type '{model}' is not valid. "
@@ -336,11 +349,23 @@ class CustomSemanticSegmentationTask(BaseTask):
             The loss tensor.
         """
         if "image" in batch and self.hparams["model"] == "pretrained":
-            raise AssertionError("Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model.")
+            raise AssertionError("Input type 'images' not supported for pretrained model. " \
+                                "We have to precompute features for the GFM model.")
         
-        if "image" in batch:
-            x = batch["image"]
-        elif "feat" in batch:
+        if self.hparams["model"] == "gfm":
+            if self.hparams["backbone"] == "clay":
+                x = {
+                    "platform": batch["platform"],
+                    "image": batch["image"],
+                    "time": batch["time"],
+                    "latlon": batch["latlon"],
+                    "gsd": batch["gsd"],
+                    "waves": batch["waves"],
+                }
+            else:
+                x = batch["image"]
+
+        elif "feat" in batch and self.hparams["model"] == "pretrained":
             x =  batch["feat"]
         # import code;code.interact(local=dict(globals(), **locals()));
         y = batch["mask"].squeeze(1)
@@ -371,10 +396,22 @@ class CustomSemanticSegmentationTask(BaseTask):
         if "image" in batch and self.hparams["model"] == "pretrained":
             raise AssertionError("Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model.")
         
-        if "image" in batch:
-            x = batch["image"]
-        elif "feat" in batch:
+        if self.hparams["model"] == "gfm":
+            if self.hparams["backbone"] == "clay":
+                x = {
+                    "platform": batch["platform"],
+                    "image": batch["image"],
+                    "time": batch["time"],
+                    "latlon": batch["latlon"],
+                    "gsd": batch["gsd"],
+                    "waves": batch["waves"],
+                }
+            else:
+                x = batch["image"]
+
+        elif "feat" in batch and self.hparams["model"] == "pretrained":
             x =  batch["feat"]
+
         y = batch["mask"].squeeze(1)
         # import code;code.interact(local=dict(globals(), **locals()));
         y_hat = self(x)
@@ -434,10 +471,22 @@ class CustomSemanticSegmentationTask(BaseTask):
         if "image" in batch and self.hparams["model"] == "pretrained":
             raise AssertionError("Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model.")
         
-        if "image" in batch:
-            x = batch["image"]
-        elif "feat" in batch:
+        if self.hparams["model"] == "gfm":
+            if self.hparams["backbone"] == "clay":
+                x = {
+                    "platform": batch["platform"],
+                    "image": batch["image"],
+                    "time": batch["time"],
+                    "latlon": batch["latlon"],
+                    "gsd": batch["gsd"],
+                    "waves": batch["waves"],
+                }
+            else:
+                x = batch["image"]
+
+        elif "feat" in batch and self.hparams["model"] == "pretrained":
             x =  batch["feat"]
+
         y = batch["mask"].squeeze(1)
         # import code;code.interact(local=dict(globals(), **locals()));
         y_hat = self(x)

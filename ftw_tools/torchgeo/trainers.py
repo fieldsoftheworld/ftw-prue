@@ -292,21 +292,35 @@ class CustomSemanticSegmentationTask(BaseTask):
                                            original_input_size=model_kwargs['original_input_size']
                                            )
         elif model == "gfm":
-            from pretrained.pretrained_factory import get_full_model
-            
-            self.model = get_full_model(
-                backbone=backbone,
-                decoder_kwargs=dict(
-                    num_classes=num_classes,
-                    dim=model_kwargs["hidden_dim"],
-                    patch_size=model_kwargs["patch_size"],
-                    fusion_type=model_kwargs["fuser"],
-                    decoder_type=model_kwargs["decoder"],
-                    original_input_size=model_kwargs["original_input_size"],
-                ),
-                weights_path=weights if isinstance(weights, str) else None,
+            # -------------------------
+            # 1. Load frozen encoder
+            # -------------------------
+            from pretrained.pretrained_factory import get_encoder
+            self.backbone = get_encoder(
+                model_name=backbone,
                 device=self.device,
+                weights_path=weights if isinstance(weights, str) else None,
             )
+            self.backbone.eval()
+            for p in self.backbone.parameters():
+                p.requires_grad = False
+
+            # -------------------------
+            # 2. Use SAME decoder as pretrained mode
+            #    so ckpt from feature-based training loads fine
+            # -------------------------
+            from ..models.segmentor import SegmentationHead
+            self.model = SegmentationHead(
+                num_classes=num_classes,
+                dim=model_kwargs['hidden_dim'],
+                patch_size=model_kwargs['patch_size'],
+                fusion_type=model_kwargs['fuser'],
+                decoder_type=model_kwargs['decoder'],
+                original_input_size=model_kwargs['original_input_size'],
+            )
+
+            print("[GFM] Using standalone encoder + SegmentationHead decoder")
+
 
         else:
             raise ValueError(
@@ -338,6 +352,22 @@ class CustomSemanticSegmentationTask(BaseTask):
 
 
 
+    def forward(self, x):
+        model_type = self.hparams["model"]
+
+        # ---------- GFM MODEL ----------
+        if model_type == "gfm":
+            feats = self.backbone(x)     # encoder forward
+            return self.model({'feat': feats})     # segmentation head forward
+
+        # ---------- PRECOMPUTED FEATURES MODEL ----------
+        if model_type == "pretrained":
+            return self.model(x)
+
+        # ---------- SMP / UNET / DEEPLAB ETC ----------
+        return self.model(x)
+
+
     def training_step(
         self, batch: Any, batch_idx: int, dataloader_idx: int = 0
     ) -> Tensor:
@@ -351,7 +381,7 @@ class CustomSemanticSegmentationTask(BaseTask):
         Returns:
             The loss tensor.
         """
-        if "image" in batch and self.hparams["model"] == "pretrained":
+        if self.hparams["model"] == "pretrained" and "feat" not in batch:
             raise AssertionError("Input type 'images' not supported for pretrained model. " \
                                 "We have to precompute features for the GFM model.")
         
@@ -369,10 +399,12 @@ class CustomSemanticSegmentationTask(BaseTask):
                 x = batch["image"]
 
         elif "feat" in batch and self.hparams["model"] == "pretrained":
-            x =  batch["feat"]
+            x = batch["feat"]
+        else:
+            x = batch["image"]
         # import code;code.interact(local=dict(globals(), **locals()));
         y = batch["mask"].squeeze(1)
-        y_hat = self.model(x)
+        y_hat = self(x)
         loss: Tensor = self.criterion(y_hat, y)
         self.log(
             "train/loss",
@@ -413,11 +445,13 @@ class CustomSemanticSegmentationTask(BaseTask):
                 x = batch["image"]
 
         elif "feat" in batch and self.hparams["model"] == "pretrained":
-            x =  batch["feat"]
+            x = batch["feat"]
+        else:
+            x = batch["image"]
 
         y = batch["mask"].squeeze(1)
         # import code;code.interact(local=dict(globals(), **locals()));
-        y_hat = self.model(x)
+        y_hat = self(x)
         loss: Tensor = self.criterion(y_hat, y)
 
         for i in range(y_hat.shape[0]):
@@ -494,7 +528,7 @@ class CustomSemanticSegmentationTask(BaseTask):
 
         y = batch["mask"].squeeze(1)
         # import code;code.interact(local=dict(globals(), **locals()));
-        y_hat = self.model(x)
+        y_hat = self(x)
         loss: Tensor = self.criterion(y_hat, y)
         self.log("test_loss", loss)
         self.test_metrics.update(y_hat, y)

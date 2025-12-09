@@ -315,6 +315,18 @@ def model_fit(config, ckpt_path, cli_args):
     default="images",
     show_default=True)
 
+@click.option(
+    "--backbone",
+    type=str,
+    default=None,
+    show_default=True)
+
+@click.option(
+    "--encoder_ckpt_path",
+    type=str,
+    default=None,
+    show_default=True)
+
 
 @click.option(
     "--feat_root",
@@ -330,6 +342,7 @@ def model_fit(config, ckpt_path, cli_args):
 
 def test(
     model,
+    backbone,
     test_split,
     dir,
     gpu,
@@ -341,12 +354,14 @@ def test(
     temporal_options,
     swap_order,
     input_type,
-    feat_root
+    feat_root,
+    encoder_ckpt_path
 ):
     from ftw_tools.models.baseline_eval import test
 
     test(
     model,
+    backbone,
     test_split,
     dir,
     gpu,
@@ -358,7 +373,8 @@ def test(
     temporal_options,
     swap_order,
     input_type,
-    feat_root
+    feat_root,
+    encoder_ckpt_path
 )
 
 

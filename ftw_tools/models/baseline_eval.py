@@ -147,6 +147,7 @@ def fit(config, ckpt_path, cli_args):
 
 def test(
     model_path,
+    backbone,
     test_split,
     dir,
     gpu,
@@ -159,66 +160,115 @@ def test(
     swap_order,
     input_type="images",
     feat_root=None,
+    encoder_ckpt_path=None,
 ):
-    """Command to test the model."""
+    """Command to test the model (FINAL UPDATED VERSION)."""
+
     print("Running test command")
     if gpu is None:
         gpu = -1
 
+    # -----------------------------
     # Device
-    if torch.cuda.is_available() and gpu >= 0:
-        device = torch.device(f"cuda:{gpu}")
-    else:
-        device = torch.device("cpu")
+    # -----------------------------
+    device = torch.device(f"cuda:{gpu}" if torch.cuda.is_available() and gpu >= 0 else "cpu")
 
-    # ------------------------------------------------------
-    # 1. Load model + read hparams (model, backbone)
-    # ------------------------------------------------------
-    print("Loading model")
+    # -----------------------------
+    # Load checkpoint
+    # -----------------------------
+    print("Loading model...")
     tic = time.time()
+
     trainer = CustomSemanticSegmentationTask.load_from_checkpoint(
-        model_path, map_location="cpu"
+        model_path, map_location="cpu", strict=False
     )
-    model = trainer.model.eval().to(device)
+    trainer.eval()
+
+    saved_model_type = trainer.hparams.get("model", "unet")
+    saved_backbone   = trainer.hparams.get("backbone", "")
+
+    # If using images_noaug → user wants GFM evaluation
+    if input_type == "images_noaug":
+        model_type = "gfm"
+        backbone_name = backbone
+    else:
+        model_type = saved_model_type
+        backbone_name = saved_backbone
+
+    print(f"  → model_type={model_type}, backbone={backbone_name}")
+
+    # -------------------------------------------------------
+    # Decoder is always stored in trainer.model
+    # -------------------------------------------------------
+    decoder = trainer.model.to(device).eval()
+
+    # -------------------------------------------------------
+    # ENCODER LOGIC (FINAL VERSION)
+    # -------------------------------------------------------
+    encoder = None
+
+    if input_type == "features":
+        print("→ Feature mode: encoder NOT required.")
+        encoder = None
+
+    elif model_type != "gfm":
+        print("→ SMP / UNET / baseline model: encoder NOT required.")
+        encoder = None
+
+    else:
+        # -------------------------
+        # CASE 1 — Images-trained GFM checkpoint with encoder stored
+        # -------------------------
+        if hasattr(trainer, "backbone"):
+            encoder = trainer.backbone.to(device).eval()
+            print("→ Using encoder stored inside checkpoint")
+
+        # -------------------------
+        # CASE 2 — Feature-trained decoder: must rebuild encoder
+        # -------------------------
+        else:
+            print("→ Rebuilding encoder via pretrained_factory.get_encoder()")
+
+            from pretrained.pretrained_factory import get_encoder
+            encoder = get_encoder(
+                model_name=backbone_name,
+                device=device,
+                weights_path=encoder_ckpt_path,  # ← your requested update
+            )
+            encoder.eval()
+
+            for p in encoder.parameters():
+                p.requires_grad = False
+
+            print(f"→ Loaded encoder weights from: {encoder_ckpt_path}")
+
     print(f"Model loaded in {time.time() - tic:.2f}s")
 
-    # hparams stored by LightningCLI
-    model_type = trainer.hparams.get("model", "unet")       # "unet", "gfm", "pretrained", ...
-    backbone = trainer.hparams.get("backbone", "")          # "clay", "terrafm", ...
-
-    print(f"Model type from ckpt: {model_type}, backbone: {backbone}")
-
-    # ------------------------------------------------------
-    # 2. Build dataset: FTW (new API)
-    #    - choose preprocessing
-    #    - set metadata_path for CLAY
-    # ------------------------------------------------------
+    # ---------------------------------------------
+    # Build FTW dataset (unchanged)
+    # ---------------------------------------------
     if countries == ("all",):
         countries = FULL_DATA_COUNTRIES
 
-    # Decide preprocessing string for FTW
-    # features → no preprocessing
-    if "features" in input_type:
+    if input_type == "features":
         preprocessing = "none"
     else:
         if model_type == "gfm":
-            # for GFM experiments we use backbone name as preprocess key
-            if backbone in ("clay", "terrafm", "dinov3", "terramind"):
-                preprocessing = backbone
+            if backbone_name in ("clay", "terrafm", "dinov3", "terramind"):
+                preprocessing = backbone_name
             else:
-                raise ValueError(f"backbone={backbone} for GFM model is Not supported yet!")
+                raise ValueError(f"GFM backbone {backbone_name} not supported!")
         else:
-            # plain SMP baselines: no special preprocessing here
             preprocessing = "none"
 
-    # CLAY needs metadata.yaml (to get mean/std, gsd, wavelengths)
+    # CLAY metadata file
     metadata_path = None
     if preprocessing == "clay":
-        repo_root = Path(__file__).resolve().parents[2]  # ftw-prue root
+        repo_root = Path(__file__).resolve().parents[2]
         metadata_path = str(repo_root / "configs" / "metadata.yaml")
         print(f"Using CLAY metadata file: {metadata_path}")
 
-    print("Creating dataloader")
+    print("Creating dataloader...")
     tic = time.time()
 
     ds = FTW(
@@ -235,130 +285,117 @@ def test(
     )
 
     dl = DataLoader(ds, batch_size=64, shuffle=False, num_workers=12)
-    print(f"Created dataloader with {len(ds)} samples in {time.time() - tic:.2f}s")
+    print(f"  → Loaded {len(ds)} samples in {time.time() - tic:.2f}s")
 
-    # ------------------------------------------------------
-    # 3. Metrics & eval loop
-    # ------------------------------------------------------
+    # ---------------------------------------------
+    # Metrics
+    # ---------------------------------------------
     if test_on_3_classes:
-        metrics = MetricCollection(
-            [
-                JaccardIndex(
-                    task="multiclass", average="none", num_classes=3, ignore_index=3
-                ),
-                Precision(
-                    task="multiclass", average="none", num_classes=3, ignore_index=3
-                ),
-                Recall(
-                    task="multiclass", average="none", num_classes=3, ignore_index=3
-                ),
-            ]
-        ).to(device)
+        metrics = MetricCollection([
+            JaccardIndex(task="multiclass", average="none", num_classes=3, ignore_index=3),
+            Precision(task="multiclass", average="none", num_classes=3, ignore_index=3),
+            Recall(task="multiclass", average="none", num_classes=3, ignore_index=3),
+        ]).to(device)
     else:
-        metrics = MetricCollection(
-            [
-                JaccardIndex(
-                    task="multiclass", average="none", num_classes=2, ignore_index=3
-                ),
-                Precision(
-                    task="multiclass", average="none", num_classes=2, ignore_index=3
-                ),
-                Recall(
-                    task="multiclass", average="none", num_classes=2, ignore_index=3
-                ),
-            ]
-        ).to(device)
+        metrics = MetricCollection([
+            JaccardIndex(task="multiclass", average="none", num_classes=2, ignore_index=3),
+            Precision(task="multiclass", average="none", num_classes=2, ignore_index=3),
+            Recall(task="multiclass", average="none", num_classes=2, ignore_index=3),
+        ]).to(device)
 
-    all_tps = 0
-    all_fps = 0
-    all_fns = 0
+    # ---------------------------------------------
+    # Eval loop
+    # ---------------------------------------------
+    all_tps = all_fps = all_fns = 0
     num_classes = 3 if model_predicts_3_classes else 2
 
     for batch in tqdm(dl):
-        # batch is a dict from FTW.__getitem__
         x = prepare_input(batch, input_type, device)
         masks = batch["mask"].to(device)
 
         with torch.inference_mode():
-            logits = model(x)[:, :num_classes, :, :]
+            if model_type == "gfm":
+                feats = encoder(x)
+                logits = decoder(feats)
+            elif model_type == "pretrained":
+                logits = decoder(x)
+            else:
+                logits = decoder(x)
+
+            logits = logits[:, :num_classes, :, :]
             outputs = logits.argmax(dim=1)
 
-        # Map 3-class predictions to 2-class if needed
+        # 3 → 2 class projection
         if model_predicts_3_classes:
-            new_outputs = torch.zeros_like(outputs, dtype=torch.long)
-            new_outputs[outputs == 1] = 1  # crop
-            # outputs == 0 or 2 → background (0)
-            outputs = new_outputs
+            mapped = torch.zeros_like(outputs)
+            mapped[outputs == 1] = 1
+            outputs = mapped
         else:
             if test_on_3_classes:
-                raise ValueError(
-                    "Cannot test on 3 classes when the model was trained on 2 classes"
-                )
+                raise ValueError("Model predicts 2 classes but test_on_3_classes=True")
 
         metrics.update(outputs, masks)
 
-        outputs_np = outputs.cpu().numpy().astype(np.uint8)
-        masks_np = masks.cpu().numpy().astype(np.uint8)
+        # Object metrics
+        out_np = outputs.cpu().numpy().astype(np.uint8)
+        mask_np = masks.cpu().numpy().astype(np.uint8)
 
-        for i in range(len(outputs_np)):
-            tps, fps, fns = get_object_level_metrics(
-                masks_np[i], outputs_np[i], iou_threshold=iou_threshold
-            )
-            all_tps += tps
-            all_fps += fps
-            all_fns += fns
+        for i in range(len(out_np)):
+            t, f, n = get_object_level_metrics(mask_np[i], out_np[i], iou_threshold)
+            all_tps += t
+            all_fps += f
+            all_fns += n
 
-    # ------------------------------------------------------
-    # 4. Aggregate + write results
-    # ------------------------------------------------------
-    results = metrics.compute()
-    pixel_level_iou = results["MulticlassJaccardIndex"][1].item()
-    pixel_level_precision = results["MulticlassPrecision"][1].item()
-    pixel_level_recall = results["MulticlassRecall"][1].item()
+    # ---------------------------------------------
+    # Aggregate results
+    # ---------------------------------------------
+    results   = metrics.compute()
+    pixel_iou = results["MulticlassJaccardIndex"][1].item()
+    pixel_prec = results["MulticlassPrecision"][1].item()
+    pixel_recall = results["MulticlassRecall"][1].item()
 
-    if all_tps + all_fps > 0:
-        object_precision = all_tps / (all_tps + all_fps)
-    else:
-        object_precision = float("nan")
-
-    if all_tps + all_fns > 0:
-        object_recall = all_tps / (all_tps + all_fns)
-    else:
-        object_recall = float("nan")
-
-    if (
-        not (np.isnan(object_precision) or np.isnan(object_recall))
+    object_precision = all_tps / (all_tps + all_fps) if (all_tps + all_fps) > 0 else float("nan")
+    object_recall    = all_tps / (all_tps + all_fns) if (all_tps + all_fns) > 0 else float("nan")
+    object_f1 = (
+        2 * object_precision * object_recall / (object_precision + object_recall)
+        if not (np.isnan(object_precision) or np.isnan(object_recall))
         and (object_precision + object_recall) > 0
-    ):
-        object_f1 = 2 * object_precision * object_recall / (object_precision + object_recall)
-    else:
-        object_f1 = float("nan")
+        else float("nan")
+    )
 
-    print(f"Pixel IoU (crop):        {pixel_level_iou:.4f}")
-    print(f"Pixel Precision (crop):  {pixel_level_precision:.4f}")
-    print(f"Pixel Recall (crop):     {pixel_level_recall:.4f}")
+    # ---------------------------------------------
+    # Print results
+    # ---------------------------------------------
+    print(f"\nPixel IoU (crop):        {pixel_iou:.4f}")
+    print(f"Pixel Precision (crop):  {pixel_prec:.4f}")
+    print(f"Pixel Recall (crop):     {pixel_recall:.4f}")
     print(f"Object Precision:        {object_precision:.4f}")
     print(f"Object Recall:           {object_recall:.4f}")
     print(f"Object F1:               {object_f1:.4f}")
 
+    # ---------------------------------------------
+    # Save CSV row
+    # ---------------------------------------------
     country_str = ";".join(countries)
     if set(countries) == set(FULL_DATA_COUNTRIES):
         country_str = "all"
 
     if out is not None:
-        if not os.path.exists(out):
-            with open(out, "w") as f:
-                f.write(
-                    "train_checkpoint,test_countries,pixel_level_iou,"
-                    "pixel_level_precision,pixel_level_recall,"
-                    "object_level_precision,object_level_recall,object_level_f1\n"
-                )
+        header = (
+            "train_checkpoint,test_countries,pixel_level_iou,"
+            "pixel_level_precision,pixel_level_recall,"
+            "object_level_precision,object_level_recall,object_level_f1\n"
+        )
+        file_exists = os.path.exists(out)
+
         with open(out, "a") as f:
+            if not file_exists:
+                f.write(header)
             f.write(
                 f"{model_path},{country_str},"
-                f"{round(pixel_level_iou,3)},"
-                f"{round(pixel_level_precision,3)},"
-                f"{round(pixel_level_recall,3)},"
+                f"{round(pixel_iou,3)},"
+                f"{round(pixel_prec,3)},"
+                f"{round(pixel_recall,3)},"
                 f"{round(object_precision,3)},"
                 f"{round(object_recall,3)},"
                 f"{round(object_f1,3)}\n"

@@ -2,18 +2,27 @@
 set -e
 
 # =========================================
-# ARGUMENTS
+# ARGUMENTS (NEW ORDER)
 # =========================================
-export EXPR_TYPE=${1:-main}          # main | supp
-export INPUT_TYPE=${2:-features}     # features | images_noaug
+# 1. model filter: "all" (default), or specific model name
+export MODEL_FILTER=${1:-all}
 
-# If features → 3rd = FEAT_ROOT_BASE, 4th = MODEL_FILTER
+# Normalize: treat "all" as no filter
+if [[ "$MODEL_FILTER" == "all" ]]; then
+    MODEL_FILTER=""
+fi
+
+# 2. experiment type (main | supp)
+export EXPR_TYPE=${2:-main}
+
+# 3. input type (features | images_noaug)
+export INPUT_TYPE=${3:-features}
+
+# 4. feature root required only for features mode
 if [[ "$INPUT_TYPE" == "features" ]]; then
-    export FEAT_ROOT_BASE=${3:?❌ ERROR: features mode requires 3rd argument = feat_root_base}
-    export MODEL_FILTER=${4:-""}
+    export FEAT_ROOT_BASE=${4:?❌ ERROR: features mode requires 4th argument = feat_root_base}
 else
     export FEAT_ROOT_BASE=""
-    export MODEL_FILTER=${3:-""}
 fi
 
 # Default split = test unless overridden externally
@@ -23,13 +32,31 @@ GPU=0
 
 echo "========================================="
 echo "🚀 GFM Evaluation"
+echo " Model filter : ${MODEL_FILTER:-ALL}"
 echo " Expr type    : $EXPR_TYPE"
 echo " Input type   : $INPUT_TYPE"
 echo " Country split: $COUNTRY_SPLIT"
 echo " GPU          : $GPU"
-echo " Model filter : ${MODEL_FILTER:-ALL}"
 echo " Feat root    : ${FEAT_ROOT_BASE:-NONE}"
 echo "========================================="
+
+
+# =========================================
+# Pretrained encoder weight lookup (MIRRORED FROM TRAIN SCRIPT)
+# =========================================
+ENCODER_DIR="gfm_ckpts/encoders"
+
+get_encoder_ckpt() {
+    local name="$1"
+    case "$name" in
+        clay)      echo "$ENCODER_DIR/clay-v1.5.ckpt" ;;
+        terrafm)   echo "$ENCODER_DIR/TerraFM-B.pth" ;;
+        dinov3)    echo "$ENCODER_DIR/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth" ;;
+        terramind) echo "null" ;;  # No ckpt
+        *)         echo "null" ;;
+    esac
+}
+
 
 # =========================================
 # Country list
@@ -63,12 +90,13 @@ declare -A ckpt_map=(
 
 mkdir -p logs
 
+
 # =========================================
 # Model Loop
 # =========================================
 for MODEL_NAME in "${!ckpt_map[@]}"; do
 
-  # optional filter
+  # optional model filter
   if [[ -n "$MODEL_FILTER" && "$MODEL_FILTER" != "$MODEL_NAME" ]]; then
       continue
   fi
@@ -80,9 +108,12 @@ for MODEL_NAME in "${!ckpt_map[@]}"; do
     continue
   fi
 
-  # Only create results directory if we're actually evaluating this model
-  mkdir -p "results/$MODEL_NAME"
+  # Encoder weights for this backbone
+  ENCODER_CKPT_PATH=$(get_encoder_ckpt "$MODEL_NAME")
 
+  echo "→ Encoder ckpt for $MODEL_NAME = $ENCODER_CKPT_PATH"
+
+  mkdir -p "results/$MODEL_NAME"
   LOG_FILE="logs/${MODEL_NAME}_${EXPR_TYPE}_${INPUT_TYPE}.log"
 
   echo "======================================" | tee -a "$LOG_FILE"
@@ -94,7 +125,6 @@ for MODEL_NAME in "${!ckpt_map[@]}"; do
 
   for COUNTRY_NAME in "${FULL_DATA_COUNTRIES[@]}"; do
     echo "--> Country: $COUNTRY_NAME" | tee -a "$LOG_FILE"
-
     country_start=$(date +%s)
 
     if [[ "$INPUT_TYPE" == "features" ]]; then
@@ -107,21 +137,25 @@ for MODEL_NAME in "${!ckpt_map[@]}"; do
         --dir ./data/ftw \
         --gpu "$GPU" \
         --feat_root "$FEAT_ROOT_BASE/$MODEL_NAME" \
-        --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
+        --encoder_ckpt_path "$ENCODER_CKPT_PATH" \
+        --backbone "$MODEL_NAME" \
         --model_predicts_3_classes --test_on_3_classes \
+        --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
         2>&1 | tee -a "$LOG_FILE"
 
     else
 
       python -m ftw_tools.cli model test \
         --model "$CKPT_PATH" \
+        --backbone "$MODEL_NAME" \
+        --encoder_ckpt_path "$ENCODER_CKPT_PATH" \
         --countries "$COUNTRY_NAME" \
         --test_split "$COUNTRY_SPLIT" \
         --input_type "images_noaug" \
         --dir ./data/ftw \
         --gpu "$GPU" \
-        --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
         --model_predicts_3_classes --test_on_3_classes \
+        --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
         2>&1 | tee -a "$LOG_FILE"
     fi
 
@@ -139,19 +173,3 @@ for MODEL_NAME in "${!ckpt_map[@]}"; do
 done
 
 echo "✨ All evaluations complete!"
-
-# ==========================================================
-# USAGE EXAMPLES
-# ==========================================================
-# All models, features:
-#   ./eval_gfm.sh main features /path/to/precomputed_feats
-#
-# Single model (e.g., clay), features:
-#   ./eval_gfm.sh main features /path/to/precomputed_feats clay
-#
-# All models, images:
-#   ./eval_gfm.sh main images_noaug
-#
-# Single model (e.g., dinov3), images:
-#   ./eval_gfm.sh main images_noaug dinov3
-# ==========================================================

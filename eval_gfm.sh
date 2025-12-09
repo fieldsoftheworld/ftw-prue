@@ -173,3 +173,26 @@ for MODEL_NAME in "${!ckpt_map[@]}"; do
 done
 
 echo "✨ All evaluations complete!"
+
+
+# ==========================================================
+# EXAMPLE USAGE
+# ==========================================================
+# Evaluate ALL models on FEATURES:
+#   ./eval_gfm.sh all main features /path/to/feat_root
+#
+# Evaluate ONE model (e.g., clay) on FEATURES:
+#   ./eval_gfm.sh clay main features /path/to/feat_root
+#
+# Evaluate ALL models on IMAGES:
+#   ./eval_gfm.sh all main images_noaug
+#
+# Evaluate ONE model (e.g., dinov3) on IMAGES:
+#   ./eval_gfm.sh dinov3 main images_noaug
+#
+# Arg order:
+#   1. model_filter   (all | clay | terrafm | ...)
+#   2. experiment     (main | supp)
+#   3. input_type     (features | images_noaug)
+#   4. feat_root_base (required only when input_type=features)
+# ==========================================================

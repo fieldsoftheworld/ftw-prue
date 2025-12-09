@@ -141,6 +141,7 @@ def compute_embeddings(model_name: str, data_path: str, metadata_path: str, outp
                     for img_path, emb in zip(batch_paths, emb_batch):
                         out_path = country_dir / f"{model_name}_{img_path.stem}.npz"
                         emb_np = emb.numpy()  # Convert to NumPy array
+                        # import code; code.interact(local=dict(globals(), **locals()))
                         np.savez_compressed(out_path, embedding=emb_np)
 
                 except Exception as e:

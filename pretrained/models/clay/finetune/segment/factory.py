@@ -127,7 +127,7 @@ class SegmentEncoder(Encoder):
         B, C, H, W = cube.shape
         if waves.ndim == 2:
             waves = waves[0]  # [N] assume all batch have same wavelengths
-        if len(gsd) == B:
+        if gsd.ndim == 1 and len(gsd) == B:
             gsd = gsd[0]  # [1] assume all batch have same gsd
         if C == len(waves):
             # Patchify and create embeddings per patch

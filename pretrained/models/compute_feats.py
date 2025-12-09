@@ -47,7 +47,7 @@ def parse_args():
         "--output_dir",
         type=str,
         default="/projects/benq/ftw-data/precomputed_feats",
-        help="Directory to save computed embeddings (.pt files)",
+        help="Directory to save computed embeddings (.npz files)",
     )
     parser.add_argument(
         "--batch_size",

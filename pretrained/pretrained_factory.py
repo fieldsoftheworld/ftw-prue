@@ -79,6 +79,9 @@ class FullGFMModel(nn.Module):
             device=device,
             weights_path=weights_path
         )
+        self.encoder.eval()
+        for param in self.encoder.parameters():
+            param.requires_grad = False
 
         # Decoder from segmentation module
         self.decoder = SegmentationHead(**decoder_kwargs)

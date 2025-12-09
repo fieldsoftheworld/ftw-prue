@@ -208,3 +208,5 @@ __marimo__/
 
 data/
 logs/
+gfm_ckpts/
+results/

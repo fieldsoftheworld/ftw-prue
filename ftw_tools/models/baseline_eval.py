@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import time
 
 import numpy as np
@@ -10,7 +11,6 @@ from torchmetrics import JaccardIndex, MetricCollection, Precision, Recall
 from tqdm import tqdm
 
 from ftw_tools.postprocess.metrics import get_object_level_metrics
-from ftw_tools.torchgeo.preprocess import preprocess
 from ftw_tools.torchgeo.datasets import FTW
 from ftw_tools.torchgeo.trainers import CustomSemanticSegmentationTask
 from box import Box
@@ -44,32 +44,28 @@ FULL_DATA_COUNTRIES = [
 
 
 def prepare_input(batch, input_type, device):
-    """Return model-ready input dict/tensor depending on modality."""
-    # Image-only
-    if input_type == "images":
-        return batch["image"].to(device)
-    
-    # Feature-only
-    if input_type == "features":
-        return {"feat": batch["feat"].to(device)}
-    
-    # Image + Feature fusion
-    if "images" in input_type and "features" in input_type:
-        return {
-            "image": batch["image"].to(device),
-            "feat": batch["feat"].to(device),
-        }
-    
-    # Clay model (includes spatiotemporal inputs)
-    if "time" in batch and "latlon" in batch:
-        return {
-            "platform": "sentinel-2-l2a",
-            "image": batch["image"].to(device),
-            "time": batch["time"].to(device),
-            "latlon": batch["latlon"].to(device),
-        }
+    """Return model input based on run-time input_type, NOT model_type."""
 
-    raise ValueError(f"Unrecognized input_type: {input_type} or batch keys {batch.keys()}")
+    # Case 1 — Feature precomputed input
+    if input_type == "features":
+        return batch["feat"].to(device)
+
+    # Case 2 — Any image mode: images / images_noaug / clay metadata style
+    if input_type in ("images", "images_noaug"):
+        # CLAY structured model (metadata-aware)
+        if "time" in batch and "latlon" in batch:
+            return {
+                "platform": batch["platform"],
+                "image": batch["image"].to(device),
+                "time": batch["time"].to(device),
+                "latlon": batch["latlon"].to(device),
+                "gsd": batch["gsd"].to(device),
+                "waves": batch["waves"].to(device),
+            }
+        # Other backbones: simple tensor input
+        return batch["image"].to(device)
+
+    raise ValueError(f"Unsupported input_type={input_type}")
 
 
 # ----------------------------------------
@@ -162,20 +158,22 @@ def test(
     temporal_options,
     swap_order,
     input_type="images",
-    preprocess_type="ftw",
-    feat_root=None
+    feat_root=None,
 ):
     """Command to test the model."""
     print("Running test command")
     if gpu is None:
         gpu = -1
 
-    # Merge `test_model` function into this test command
+    # Device
     if torch.cuda.is_available() and gpu >= 0:
         device = torch.device(f"cuda:{gpu}")
     else:
         device = torch.device("cpu")
 
+    # ------------------------------------------------------
+    # 1. Load model + read hparams (model, backbone)
+    # ------------------------------------------------------
     print("Loading model")
     tic = time.time()
     trainer = CustomSemanticSegmentationTask.load_from_checkpoint(
@@ -184,31 +182,64 @@ def test(
     model = trainer.model.eval().to(device)
     print(f"Model loaded in {time.time() - tic:.2f}s")
 
-    print("Creating dataloader")
-    tic = time.time()
-    
+    # hparams stored by LightningCLI
+    model_type = trainer.hparams.get("model", "unet")       # "unet", "gfm", "pretrained", ...
+    backbone = trainer.hparams.get("backbone", "")          # "clay", "terrafm", ...
+
+    print(f"Model type from ckpt: {model_type}, backbone: {backbone}")
+
+    # ------------------------------------------------------
+    # 2. Build dataset: FTW (new API)
+    #    - choose preprocessing
+    #    - set metadata_path for CLAY
+    # ------------------------------------------------------
     if countries == ("all",):
         countries = FULL_DATA_COUNTRIES
-    
-    # import code;code.interact(local=dict(globals(), **locals()));
-    preprocess_fn = preprocess(preprocess_type=preprocess_type,
-                               input_type=input_type)
-    
+
+    # Decide preprocessing string for FTW
+    # features → no preprocessing
+    if "features" in input_type:
+        preprocessing = "none"
+    else:
+        if model_type == "gfm":
+            # for GFM experiments we use backbone name as preprocess key
+            if backbone in ("clay", "terrafm", "dinov3", "terramind"):
+                preprocessing = backbone
+            else:
+                raise ValueError(f"backbone={backbone} for GFM model is Not supported yet!")
+        else:
+            # plain SMP baselines: no special preprocessing here
+            preprocessing = "none"
+
+    # CLAY needs metadata.yaml (to get mean/std, gsd, wavelengths)
+    metadata_path = None
+    if preprocessing == "clay":
+        repo_root = Path(__file__).resolve().parents[2]  # ftw-prue root
+        metadata_path = str(repo_root / "configs" / "metadata.yaml")
+        print(f"Using CLAY metadata file: {metadata_path}")
+
+    print("Creating dataloader")
+    tic = time.time()
+
     ds = FTW(
         root=dir,
         countries=countries,
         split=test_split,
-        transforms=preprocess_fn,
         load_boundaries=test_on_3_classes,
         temporal_options=temporal_options,
         swap_order=swap_order,
         input_type=input_type,
         feat_root=feat_root,
+        preprocessing=preprocessing,
+        metadata_path=metadata_path,
     )
+
     dl = DataLoader(ds, batch_size=64, shuffle=False, num_workers=12)
     print(f"Created dataloader with {len(ds)} samples in {time.time() - tic:.2f}s")
-    # import code;code.interact(local=dict(globals(), **locals()));
 
+    # ------------------------------------------------------
+    # 3. Metrics & eval loop
+    # ------------------------------------------------------
     if test_on_3_classes:
         metrics = MetricCollection(
             [
@@ -241,25 +272,22 @@ def test(
     all_tps = 0
     all_fps = 0
     all_fns = 0
-    if model_predicts_3_classes:
-        num_classes = 3
-    else:
-        num_classes = 2
+    num_classes = 3 if model_predicts_3_classes else 2
+
     for batch in tqdm(dl):
+        # batch is a dict from FTW.__getitem__
         x = prepare_input(batch, input_type, device)
-       
         masks = batch["mask"].to(device)
 
         with torch.inference_mode():
-            outputs = model(x)[:, :num_classes, :, :].argmax(dim=1)
+            logits = model(x)[:, :num_classes, :, :]
+            outputs = logits.argmax(dim=1)
 
+        # Map 3-class predictions to 2-class if needed
         if model_predicts_3_classes:
-            new_outputs = torch.zeros(
-                outputs.shape[0], outputs.shape[1], outputs.shape[2], device=device
-            )
-            new_outputs[outputs == 2] = 0  # Boundary pixels
-            new_outputs[outputs == 0] = 0  # Background pixels
-            new_outputs[outputs == 1] = 1  # Crop pixels
+            new_outputs = torch.zeros_like(outputs, dtype=torch.long)
+            new_outputs[outputs == 1] = 1  # crop
+            # outputs == 0 or 2 → background (0)
             outputs = new_outputs
         else:
             if test_on_3_classes:
@@ -268,19 +296,21 @@ def test(
                 )
 
         metrics.update(outputs, masks)
-        outputs = outputs.cpu().numpy().astype(np.uint8)
-        masks = masks.cpu().numpy().astype(np.uint8)
 
-        for i in range(len(outputs)):
-            output = outputs[i]
-            mask = masks[i]
+        outputs_np = outputs.cpu().numpy().astype(np.uint8)
+        masks_np = masks.cpu().numpy().astype(np.uint8)
+
+        for i in range(len(outputs_np)):
             tps, fps, fns = get_object_level_metrics(
-                mask, output, iou_threshold=iou_threshold
+                masks_np[i], outputs_np[i], iou_threshold=iou_threshold
             )
             all_tps += tps
             all_fps += fps
             all_fns += fns
 
+    # ------------------------------------------------------
+    # 4. Aggregate + write results
+    # ------------------------------------------------------
     results = metrics.compute()
     pixel_level_iou = results["MulticlassJaccardIndex"][1].item()
     pixel_level_precision = results["MulticlassPrecision"][1].item()
@@ -295,8 +325,11 @@ def test(
         object_recall = all_tps / (all_tps + all_fns)
     else:
         object_recall = float("nan")
-    
-    if not (np.isnan(object_precision) or np.isnan(object_recall)) and (object_precision + object_recall) > 0:
+
+    if (
+        not (np.isnan(object_precision) or np.isnan(object_recall))
+        and (object_precision + object_recall) > 0
+    ):
         object_f1 = 2 * object_precision * object_recall / (object_precision + object_recall)
     else:
         object_f1 = float("nan")
@@ -316,9 +349,17 @@ def test(
         if not os.path.exists(out):
             with open(out, "w") as f:
                 f.write(
-                    "train_checkpoint,test_countries,pixel_level_iou,pixel_level_precision,pixel_level_recall,object_level_precision,object_level_recall,object_level_f1\n"
+                    "train_checkpoint,test_countries,pixel_level_iou,"
+                    "pixel_level_precision,pixel_level_recall,"
+                    "object_level_precision,object_level_recall,object_level_f1\n"
                 )
         with open(out, "a") as f:
             f.write(
-                f"{model_path},{country_str},{round(pixel_level_iou,3)},{round(pixel_level_precision,3)},{round(pixel_level_recall,3)},{round(object_precision,3)},{round(object_recall,3)},{round(object_f1,3)}\n"
+                f"{model_path},{country_str},"
+                f"{round(pixel_level_iou,3)},"
+                f"{round(pixel_level_precision,3)},"
+                f"{round(pixel_level_recall,3)},"
+                f"{round(object_precision,3)},"
+                f"{round(object_recall,3)},"
+                f"{round(object_f1,3)}\n"
             )

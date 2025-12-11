@@ -13,8 +13,8 @@ from torch import Tensor
 from torchgeo.datasets import NonGeoDataset, RasterDataset
 
 from ftw_tools.settings import ALL_COUNTRIES, TEMPORAL_OPTIONS
-from ftw_tools.utils import validate_checksums, load_with_metadata, PreProcessorWrapper
-
+from ftw_tools.utils import validate_checksums
+from pretrained.models.model_utils import get_preprocessor, prepare_clay_sample, prepare_general_sample
 
 class SingleRasterDataset(RasterDataset):
     """A torchgeo dataset that loads a single raster file."""
@@ -65,12 +65,12 @@ class FTW(NonGeoDataset):
             countries: the countries to load the dataset from, e.g. "france"
             split: string specifying what split to load (e.g. "train", "val", "test")
             preprocessing: a string specifying the preprocessing to apply to each
-                entry and returns a transformed version
+                entry and returns a transformed version , options are "none", "ftw", or gfm model name like | clay | croma | decur | dofa | dinov3 | galileo | prithvi | satlas | softcon | terrafm | terramind
             checksum: if True, check the MD5 of the downloaded files (may be slow)
             load_boundaries: if True, load the 3 class masks with boundaries
             temporal_options : for abalation study, valid option are (stacked, windowA, windowB, median, rgb, random_window)
             swap_order: if True, swap the order of temporal data (i.e. use window A first)
-            input_type: if "images" we are using raw images, if "features" we are using precomputed features 
+            input_type: if "images" we are using raw images, if "features" we are using precomputed features , "images_noaug" for GFM experiments
             feat_root: root directory where precomputed features are stored
             metadata_path: path to metadata file
         Raises:
@@ -94,16 +94,14 @@ class FTW(NonGeoDataset):
 
         self.countries = countries
         assert split in self.valid_splits
-        if preprocessing == "clay":
-            self.preprocessing = PreProcessorWrapper(preprocessing, metadata_path=metadata_path)
-        else:
-            self.preprocessing = PreProcessorWrapper(preprocessing)
+        self.preprocessing = preprocessing
+        self.preprocessor, self.gsd, self.waves = get_preprocessor(preprocessing, metadata_path=metadata_path)
         self.checksum = checksum
         self.load_boundaries = load_boundaries
         self.temporal_options = temporal_options
         self.num_samples = num_samples
         self.swap_order = swap_order
-        if metadata_path is None:
+        if metadata_path is None and self.preprocessing == "clay":
             self.with_metadata = False
         else:
             self.with_metadata = True
@@ -338,7 +336,6 @@ class FTW(NonGeoDataset):
             sample["feat"] = feat
             sample["mask"] = mask
 
-        
         if "images" in self.input_type:
             img_filenames = self.img_filenames[index]
             
@@ -347,8 +344,8 @@ class FTW(NonGeoDataset):
             time_vectors = [] 
             metadata_dict = None
 
-            current_gsd = self.preprocessing.gsd
-            current_waves = self.preprocessing.waves
+            current_gsd = self.gsd
+            current_waves = self.waves
             
             # --- 1. Determine and Load Windows ---
             windows_to_load = []
@@ -362,16 +359,22 @@ class FTW(NonGeoDataset):
             # Process the determined windows
             for window_key in windows_to_load:
                 # Load the data dictionary
-                data_dict = load_with_metadata(
-                    image_path=img_filenames[window_key], 
-                    root_data_path=self.root,
-                    gsd=current_gsd,                   
-                    waves=current_waves,               
-                    metadata_on=self.with_metadata
-                )
-                
+                if self.preprocessing == "clay":
+                    data_dict = prepare_clay_sample(
+                        image_path=img_filenames[window_key], 
+                        preprocess=self.preprocessor,
+                        gsd=current_gsd,                   
+                        waves=current_waves,
+                        data_root=self.root,               
+                    )
+                else:
+                    data_dict = prepare_general_sample(
+                        image_path=img_filenames[window_key], 
+                        preprocess=self.preprocessor,
+                    )
+        
                 # Always collect the image tensor
-                images.append(self.preprocessing(data_dict)['image'])
+                images.append(data_dict['image'])
                 
                 # Conditionally collect time vector and static metadata
                 if self.with_metadata:

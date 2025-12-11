@@ -34,19 +34,19 @@ def parse_args():
     parser.add_argument(
         "--data_path",
         type=str,
-        default="/projects/benq/ftw-data/data/ftw",
+        default="/u/subashk/storage/ftw-prue/data/ftw",
         help="Base FTW data directory containing country folders (except Latvia)",
     )
     parser.add_argument(
         "--metadata",
         type=str,
-        default="/u/subashk/storage/ftw-ablation/FTW-Bakeoff/ftw-baselines-2/configs/metadata.yaml",
+        default="/u/subashk/storage/ftw-prue/configs/metadata.yaml",
         help="Path to metadata YAML for CLAY",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="/projects/benq/ftw-data/precomputed_feats",
+        default="/projects/benq/ftw-data/precomputed_feats_final",
         help="Directory to save computed embeddings (.npz files)",
     )
     parser.add_argument(
@@ -66,12 +66,12 @@ def compute_embeddings(model_name: str, data_path: str, metadata_path: str, outp
     encoder, preprocess, gsd, waves = get_model_and_preprocess(model_name, device, metadata_path)
 
     countries_root = Path(data_path)
-    latvia_root = Path("/projects/benq/ftw-data/latvia")  # fixed path for Latvia
+    # latvia_root = Path("/projects/benq/ftw-data/latvia")  # fixed path for Latvia
 
     # Gather all countries
     country_dirs = sorted([p for p in countries_root.iterdir() if p.is_dir()])
-    if latvia_root.exists():
-        country_dirs.append(latvia_root)
+    # if latvia_root.exists():
+    #     country_dirs.append(latvia_root)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -158,3 +158,6 @@ if __name__ == "__main__":
     args = parse_args()
     output_dir = os.path.join(args.output_dir, args.model)
     compute_embeddings(args.model, args.data_path, args.metadata, output_dir, args.batch_size)
+
+
+#python -m models.compute_feats --output_dir /u/subashk/storage/ftw-prue/logs/precomputed_feats --model clay

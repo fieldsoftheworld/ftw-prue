@@ -16,6 +16,7 @@ from box import Box
 from .clay.finetune.segment.factory import SegmentEncoder as ClayEncoder
 from .TerraFM.terrafm_segment import TerraFMEncoderWrapper as TerraFMEncoder
 from .dinov3.dinov3_segmentor import SegmentEncoder as DinoV3Encoder
+from .terramind.terramind import SegmentEncoder as TeraMindEncoder
 from datetime import datetime, timedelta
 import math
 
@@ -43,14 +44,8 @@ def load_image(path: str, select_rgb: bool = False):
     return torch.from_numpy(img), lat, lon
 
 
-def preprocess_terrafm(sample: dict, norm_const=3000.0) -> dict:
+def preprocess_general(sample: dict, norm_const=3000.0) -> dict:
     """Normalize Sentinel-2 reflectance for TerraFM (L2A scaled by 10 000)."""
-    sample["image"] = sample["image"] / norm_const
-    return sample
-
-
-def preprocess_terramind(sample: dict, norm_const=3000.0) -> dict:
-    """Normalize Sentinel-2 reflectance for TerraMind (L2A scaled by 10 000)."""
     sample["image"] = sample["image"] / norm_const
     return sample
 
@@ -133,6 +128,83 @@ def extract_season_dates(json_path):
         "window_b": get_median_date(window_b_start, window_b_end),
     }
 
+def prepare_general_sample(
+    image_path: str,
+    preprocess: callable,
+):
+    image, lat, lon = load_image(image_path)
+    image = preprocess(image)
+    return {
+        "image": image,
+    }
+
+def prepare_clay_sample(
+    image_path: str,
+    preprocess: callable,
+    gsd: torch.Tensor,
+    waves: torch.Tensor,
+    data_root: str = "/u/subashk/storage/ftw-prue/data/ftw",
+):
+    """
+    Prepare a Sentinel-2 image sample for CLAY encoder inference.
+    Automatically infers window type (A/B) and extracts temporal + spatial encodings.
+
+    Args:
+        image_path: Path to a Sentinel-2 image (.tif)
+        device: torch.device
+        preprocess: normalization transform (preprocess_clay instance)
+        gsd: Ground Sampling Distance tensor
+        waves: Band wavelength tensor
+
+    Returns:
+        dict ready for ClayEncoder.forward() with batched tensors.
+        {
+            'platform': 'sentinel-2-l2a',
+            'image':  [C,H,W],
+            'time':   [T],
+            'latlon': [4],
+            'gsd':    tensor,
+            'waves':  tensor
+        }
+    """
+
+    image_path_lower = str(image_path).lower()
+    if "window_a" in image_path_lower:
+        window_type = "a"
+    elif "window_b" in image_path_lower:
+        window_type = "b"
+    else:
+        raise ValueError(f"Cannot infer window type from path: {image_path}")
+
+    # determine country and get timestamps
+    country = Path(image_path).parts[-4]
+    json_fn = f"{data_root}/{country}/data_config_{country}.json"
+    times_json = extract_season_dates(json_fn)
+    timestamp = times_json[f"window_{window_type}"]
+
+    # load + preprocess image
+    image, lat, lon = load_image(image_path)
+    image = preprocess({"image": image})["image"]
+    
+    # temporal encoding
+    week_norm, hour_norm = normalize_timestamp(timestamp)
+    time_vec = torch.tensor(list(week_norm) + list(hour_norm), dtype=torch.float32)
+
+    # spatial encoding
+    latlon_encoded = normalize_latlon(lat, lon)
+    lat_vec = torch.tensor(latlon_encoded[0], dtype=torch.float32)
+    lon_vec = torch.tensor(latlon_encoded[1], dtype=torch.float32)
+    latlon_vec = torch.cat([lat_vec, lon_vec], dim=-1) 
+
+    return {
+        "platform": "sentinel-2-l2a",
+        "image": image,
+        "time": time_vec,
+        "latlon": latlon_vec,
+        "gsd": gsd,
+        "waves": waves,
+    }
+
 
 def prepare_clay_batch(
     image_paths: list[str],
@@ -140,6 +212,7 @@ def prepare_clay_batch(
     preprocess: callable,
     gsd: torch.Tensor,
     waves: torch.Tensor,
+    data_root: str = "/u/subashk/storage/ftw-prue/data/ftw",
 ):
     """
     Prepare a batch of Sentinel-2 image samples for CLAY encoder inference.
@@ -176,10 +249,7 @@ def prepare_clay_batch(
 
         # determine country and get timestamps
         country = Path(image_path).parts[-4]
-        if country != "latvia":
-            json_fn = f"/projects/benq/ftw-data/data/ftw/{country}/data_config_{country}.json"
-        else:
-            json_fn = "/projects/benq/ftw-data/latvia/data_config_latvia.json"
+        json_fn = f"{data_root}/{country}/data_config_{country}.json"
         times_json = extract_season_dates(json_fn)
         timestamp = times_json[f"window_{window_type}"]
 
@@ -257,12 +327,18 @@ def get_model_and_preprocess(model_name: str, device: torch.device, metadata_pat
     # -------------------- TERRAFM --------------------
     elif model_name == "terrafm":
         weights = "/projects/bdbk/subashk/ckpts/TERRAFM/TerraFM-B.pth"
-        preprocess_fn = preprocess_terrafm
+        preprocess_fn = preprocess_general
         encoder = TerraFMEncoder(
             ckpt_path=weights, in_chans=4,
             device=device, freeze_encoder="all"
         ).to(device)
         encoder.eval()
+        return encoder, preprocess_fn, None, None
+
+    elif model_name == "terramind":
+        encoder = TeraMindEncoder().to(device)
+        encoder.eval()
+        preprocess_fn = preprocess_general
         return encoder, preprocess_fn, None, None
 
     # -------------------- DINOV3 --------------------
@@ -281,8 +357,12 @@ def get_preprocessor(model_name: str, metadata_path: str):
     """Return only the preprocessing function and metadata tensors (no model)."""
     model_name = model_name.lower()
 
+    if model_name == "unet":
+        preprocess_fn = preprocess_general
+        return preprocess_fn, None, None
+
     # -------------------- CLAY --------------------
-    if model_name == "clay":
+    elif model_name == "clay":
         metadata = Box(yaml.safe_load(open(metadata_path, "r")))
         platform = "sentinel-2-l2a"
         bands = ["red", "green", "blue", "nir"]
@@ -299,7 +379,12 @@ def get_preprocessor(model_name: str, metadata_path: str):
 
     # -------------------- TERRAFM --------------------
     elif model_name == "terrafm":
-        preprocess_fn = preprocess_terrafm
+        preprocess_fn = preprocess_general
+        return preprocess_fn, None, None
+    
+    # -------------------- TERRAFM --------------------
+    elif model_name == "terramind":
+        preprocess_fn = preprocess_general
         return preprocess_fn, None, None
 
     # -------------------- DINOV3 --------------------

@@ -26,8 +26,9 @@ configs/sam/e2e_config.yaml
 
 ## Output
 
-Training output, checkpoints, and logs depend on the settings inside the YAML
-configuration and the SAMTrainer implementation.
+Training output checkpoints depend on the settings inside the config YAML
+configuration, but generally are output to the same directory as the config
+checkpoint of checkpoints/sam_final_...
 
 
 # Evaluation Script Usage

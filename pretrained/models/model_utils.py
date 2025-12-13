@@ -351,16 +351,15 @@ def get_model_and_preprocess(model_name: str, device: torch.device, metadata_pat
         raise ValueError(f"Unsupported model: {model_name}")
     
 
-def get_preprocessor(model_name: str, metadata_path: str):
+def get_preprocessor(preprocessing: str, metadata_path: str):
     """Return only the preprocessing function and metadata tensors (no model)."""
-    model_name = model_name.lower()
-
-    if model_name == "unet":
+    
+    if preprocessing == "unet":
         preprocess_fn = preprocess_general
         return preprocess_fn, None, None
 
     # -------------------- CLAY --------------------
-    elif model_name == "clay":
+    elif preprocessing == "clay":
         metadata = Box(yaml.safe_load(open(metadata_path, "r")))
         platform = "sentinel-2-l2a"
         bands = ["red", "green", "blue", "nir"]
@@ -376,19 +375,22 @@ def get_preprocessor(model_name: str, metadata_path: str):
         return preprocess_fn, gsd, waves
 
     # -------------------- TERRAFM --------------------
-    elif model_name == "terrafm":
+    elif preprocessing == "terrafm":
         preprocess_fn = preprocess_general
         return preprocess_fn, None, None
     
     # -------------------- TERRAFM --------------------
-    elif model_name == "terramind":
+    elif preprocessing == "terramind":
         preprocess_fn = preprocess_general
         return preprocess_fn, None, None
 
     # -------------------- DINOV3 --------------------
-    elif model_name == "dinov3":
+    elif preprocessing == "dinov3":
         preprocess_fn = preprocess_dinov3()
         return preprocess_fn, None, None
 
+    elif preprocessing == None: #placeholder for input_type == "features"
+        preprocess_fn = None
+        return preprocess_fn, None, None
     else:
-        raise ValueError(f"Unsupported model: {model_name}")
+        raise ValueError(f"Unsupported preprocessing: {preprocessing}")

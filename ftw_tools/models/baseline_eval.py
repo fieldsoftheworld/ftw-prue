@@ -184,15 +184,23 @@ def test(
     trainer.eval()
 
     saved_model_type = trainer.hparams.get("model", "unet")
-    saved_backbone   = trainer.hparams.get("backbone", "")
+    saved_backbone   = trainer.hparams.get("backbone", None)
+    print(f"  → saved_model_type={saved_model_type}, saved_backbone={saved_backbone}")
 
-    # If using images_noaug → user wants GFM evaluation
-    if input_type == "images_noaug":
+    if input_type == "images_noaug": #This is for GFM experiments
         model_type = "gfm"
         backbone_name = backbone
-    else:
+        preprocessing = backbone
+    elif input_type == "images": #This is for non-GFM experiments
         model_type = saved_model_type
         backbone_name = saved_backbone
+        preprocessing = "ftw"
+    elif input_type == "features":
+        model_type = None
+        backbone_name = None
+        preprocessing = None
+    else:
+        raise ValueError(f"Unsupported input_type={input_type}")
 
     print(f"  → model_type={model_type}, backbone={backbone_name}")
 
@@ -202,7 +210,7 @@ def test(
     decoder = trainer.model.to(device).eval()
 
     # -------------------------------------------------------
-    # ENCODER LOGIC (FINAL VERSION)
+    # ENCODER 
     # -------------------------------------------------------
     encoder = None
 
@@ -211,7 +219,7 @@ def test(
         encoder = None
 
     elif model_type != "gfm":
-        print("→ SMP / UNET / baseline model: encoder NOT required.")
+        print("→ pretrained / UNET / baseline model: encoder NOT required if experimented on precomputed features on images with unet.")
         encoder = None
 
     else:
@@ -244,21 +252,11 @@ def test(
     print(f"Model loaded in {time.time() - tic:.2f}s")
 
     # ---------------------------------------------
-    # Build FTW dataset (unchanged)
+    # Build FTW dataset
     # ---------------------------------------------
     if countries == ("all",):
         countries = FULL_DATA_COUNTRIES
-
-    if input_type == "features":
-        preprocessing = "none"
-    else:
-        if model_type == "gfm":
-            if backbone_name in ("clay", "terrafm", "dinov3", "terramind"):
-                preprocessing = backbone_name
-            else:
-                raise ValueError(f"GFM backbone {backbone_name} not supported!")
-        else:
-            preprocessing = "none"
+    
     # CLAY metadata file
     metadata_path = None
     if preprocessing == "clay":

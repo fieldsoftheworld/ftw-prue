@@ -95,7 +95,7 @@ class FTW(NonGeoDataset):
         self.countries = countries
         assert split in self.valid_splits
         self.preprocessing = preprocessing
-        self.preprocessor, self.gsd, self.waves = get_preprocessor(preprocessing, metadata_path=metadata_path)
+        self.preprocessor, self.gsd, self.waves = get_preprocessor(preprocessing=preprocessing, metadata_path=metadata_path)
         self.checksum = checksum
         self.load_boundaries = load_boundaries
         self.temporal_options = temporal_options

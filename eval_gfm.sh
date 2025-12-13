@@ -2,47 +2,39 @@
 set -e
 
 # =========================================
-# ARGUMENTS (NEW ORDER)
+# AGGREGATION SETUP (Using relative paths)
 # =========================================
-# 1. model filter: "all" (default), or specific model name
-export MODEL_FILTER=${1:-all}
+# The path to your aggregation script, relative to where this script is run
+AGGREGATE_SCRIPT="./aggregate.py" 
+# Base results directory, relative to where this script is run
+RESULT_DIR_BASE="./results" 
+# =========================================
 
-# Normalize: treat "all" as no filter
+# =========================================
+# ARGUMENTS
+# =========================================
+export MODEL_FILTER=${1:-all}
 if [[ "$MODEL_FILTER" == "all" ]]; then
     MODEL_FILTER=""
 fi
 
-# 2. experiment type (main | supp)
 export EXPR_TYPE=${2:-main}
-
-# 3. input type (features | images_noaug)
 export INPUT_TYPE=${3:-features}
 
-# 4. feature root required only for features mode
 if [[ "$INPUT_TYPE" == "features" ]]; then
     export FEAT_ROOT_BASE=${4:?❌ ERROR: features mode requires 4th argument = feat_root_base}
 else
     export FEAT_ROOT_BASE=""
 fi
 
-# Default split = test unless overridden externally
 export COUNTRY_SPLIT=${COUNTRY_SPLIT:-test}
 
 GPU=0
 
-echo "========================================="
-echo "🚀 GFM Evaluation"
-echo " Model filter : ${MODEL_FILTER:-ALL}"
-echo " Expr type    : $EXPR_TYPE"
-echo " Input type   : $INPUT_TYPE"
-echo " Country split: $COUNTRY_SPLIT"
-echo " GPU          : $GPU"
-echo " Feat root    : ${FEAT_ROOT_BASE:-NONE}"
-echo "========================================="
-
+echo "🚀 GFM Evaluation | Model filter: ${MODEL_FILTER:-ALL} | Expr: $EXPR_TYPE"
 
 # =========================================
-# Pretrained encoder weight lookup (MIRRORED FROM TRAIN SCRIPT)
+# Pretrained encoder weight lookup
 # =========================================
 ENCODER_DIR="gfm_ckpts/encoders"
 
@@ -52,11 +44,10 @@ get_encoder_ckpt() {
         clay)      echo "$ENCODER_DIR/clay-v1.5.ckpt" ;;
         terrafm)   echo "$ENCODER_DIR/TerraFM-B.pth" ;;
         dinov3)    echo "$ENCODER_DIR/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth" ;;
-        terramind) echo "null" ;;  # No ckpt
+        terramind) echo "null" ;;
         *)         echo "null" ;;
     esac
 }
-
 
 # =========================================
 # Country list
@@ -90,13 +81,27 @@ declare -A ckpt_map=(
 
 mkdir -p logs
 
+# =========================================
+# Function to run aggregation script
+# =========================================
+run_aggregation() {
+    local model_name="$1"
+    
+    echo "📊 Running aggregation for $model_name..."
+    
+    # Execute the aggregation script. 
+    # Use the --result_dir flag to specify the relative path
+    python "$AGGREGATE_SCRIPT" \
+        --model "$model_name" \
+        --result_dir "$RESULT_DIR_BASE"
+}
+
 
 # =========================================
-# Model Loop
+# Model Loop (MAIN EXECUTION)
 # =========================================
 for MODEL_NAME in "${!ckpt_map[@]}"; do
 
-  # optional model filter
   if [[ -n "$MODEL_FILTER" && "$MODEL_FILTER" != "$MODEL_NAME" ]]; then
       continue
   fi
@@ -108,52 +113,32 @@ for MODEL_NAME in "${!ckpt_map[@]}"; do
     continue
   fi
 
-  # Encoder weights for this backbone
   ENCODER_CKPT_PATH=$(get_encoder_ckpt "$MODEL_NAME")
-
-  echo "→ Encoder ckpt for $MODEL_NAME = $ENCODER_CKPT_PATH"
 
   mkdir -p "results/$MODEL_NAME"
   LOG_FILE="logs/${MODEL_NAME}_${EXPR_TYPE}_${INPUT_TYPE}.log"
 
-  echo "======================================" | tee -a "$LOG_FILE"
-  echo "📌 Evaluating model: $MODEL_NAME" | tee -a "$LOG_FILE"
-  echo "Checkpoint: $CKPT_PATH" | tee -a "$LOG_FILE"
-  echo "======================================" | tee -a "$LOG_FILE"
-
+  echo "📌 Evaluating $MODEL_NAME" | tee -a "$LOG_FILE"
   model_start=$(date +%s)
 
   for COUNTRY_NAME in "${FULL_DATA_COUNTRIES[@]}"; do
-    echo "--> Country: $COUNTRY_NAME" | tee -a "$LOG_FILE"
     country_start=$(date +%s)
 
+    # Simplified Python test command (logic remains the same)
     if [[ "$INPUT_TYPE" == "features" ]]; then
-
       python -m ftw_tools.cli model test \
-        --model "$CKPT_PATH" \
-        --countries "$COUNTRY_NAME" \
-        --test_split "$COUNTRY_SPLIT" \
-        --input_type "features" \
-        --dir ./data/ftw \
-        --gpu "$GPU" \
-        --feat_root "$FEAT_ROOT_BASE/$MODEL_NAME" \
-        --encoder_ckpt_path "$ENCODER_CKPT_PATH" \
-        --backbone "$MODEL_NAME" \
-        --model_predicts_3_classes --test_on_3_classes \
+        --model "$CKPT_PATH" --countries "$COUNTRY_NAME" --test_split "$COUNTRY_SPLIT" \
+        --input_type "features" --dir ./data/ftw --gpu "$GPU" \
+        --feat_root "$FEAT_ROOT_BASE/$MODEL_NAME" --encoder_ckpt_path "$ENCODER_CKPT_PATH" \
+        --backbone "$MODEL_NAME" --model_predicts_3_classes --test_on_3_classes \
         --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
         2>&1 | tee -a "$LOG_FILE"
 
     else
-
       python -m ftw_tools.cli model test \
-        --model "$CKPT_PATH" \
-        --backbone "$MODEL_NAME" \
-        --encoder_ckpt_path "$ENCODER_CKPT_PATH" \
-        --countries "$COUNTRY_NAME" \
-        --test_split "$COUNTRY_SPLIT" \
-        --input_type "images_noaug" \
-        --dir ./data/ftw \
-        --gpu "$GPU" \
+        --model "$CKPT_PATH" --backbone "$MODEL_NAME" --encoder_ckpt_path "$ENCODER_CKPT_PATH" \
+        --countries "$COUNTRY_NAME" --test_split "$COUNTRY_SPLIT" \
+        --input_type "images_noaug" --dir ./data/ftw --gpu "$GPU" \
         --model_predicts_3_classes --test_on_3_classes \
         --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
         2>&1 | tee -a "$LOG_FILE"
@@ -169,6 +154,8 @@ for MODEL_NAME in "${!ckpt_map[@]}"; do
   runtime_model=$((model_end - model_start))
   printf "✅ Finished %s in %dm %ds\n\n" "$MODEL_NAME" \
     $((runtime_model / 60)) $((runtime_model % 60)) | tee -a "$LOG_FILE"
+    
+  run_aggregation "$MODEL_NAME"
 
 done
 

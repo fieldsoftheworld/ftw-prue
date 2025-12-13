@@ -123,29 +123,33 @@ class SegmentEncoder(Encoder):
             datacube["gsd"],  # 1
             datacube["waves"],  # [N] or [B,N]
         )
-
         B, C, H, W = cube.shape
         if waves.ndim == 2:
             waves = waves[0]  # [N] assume all batch have same wavelengths
         if gsd.ndim == 1 and len(gsd) == B:
             gsd = gsd[0]  # [1] assume all batch have same gsd
-        if C == len(waves):
+        if C == 4:
             # Patchify and create embeddings per patch
             patches, waves_encoded = self.to_patch_embed(cube, waves)  # [B L D]
             patches = self.add_encodings(patches, time, latlon, gsd)  # [B L D]
-        elif C == 2 * len(waves):
+            cls_tokens = repeat(self.cls_token, "1 1 D -> B 1 D", B=B)  # [B 1 D]
+            patches = torch.cat((cls_tokens, patches), dim=1)  # [B (1 + L) D]
+            patches = self.transformer(patches)
+        elif C == 8:
             # Patchify and create embeddings per patch
             patches_a, waves_encoded = self.to_patch_embed(cube[:, :len(waves), :, :], waves)
             patches_a = self.add_encodings(patches_a, time[:,:4], latlon, gsd)  # [B L D]
+            cls_tokens = repeat(self.cls_token, "1 1 D -> B 1 D", B=B)  # [B 1 D]
+            patches_a = torch.cat((cls_tokens, patches_a), dim=1)  # [B (1 + L) D]
+            patches_a = self.transformer(patches_a)[:, 1:, :]
+
             patches_b = self.to_patch_embed(cube[:, 4:, :, :], waves)[0]
             patches_b = self.add_encodings(patches_b, time[:,4:], latlon, gsd)  # [B L D]
+            cls_tokens = repeat(self.cls_token, "1 1 D -> B 1 D", B=B)  # [B 1 D]
+            patches_b = torch.cat((cls_tokens, patches_b), dim=1)  # [B (1 + L) D]
+            patches_b = self.transformer(patches_b)[:, 1:, :]
+
             patches = torch.cat((patches_a, patches_b), dim=1) # [B 2*L D] #now L is 2*L
         # import code;code.interact(local=dict(globals(), **locals()));
-        # Add class tokens
-        cls_tokens = repeat(self.cls_token, "1 1 D -> B 1 D", B=B)  # [B 1 D]
-        patches = torch.cat((cls_tokens, patches), dim=1)  # [B (1 + L) D]
-
-        patches = self.transformer(patches)
-        patches = patches[:, 1:, :]  # [B L D]
 
         return patches

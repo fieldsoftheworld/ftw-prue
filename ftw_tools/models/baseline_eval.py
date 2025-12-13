@@ -15,7 +15,6 @@ from ftw_tools.torchgeo.datasets import FTW
 from ftw_tools.torchgeo.trainers import CustomSemanticSegmentationTask
 from box import Box
 import yaml
-from lightning.pytorch.loggers import WandbLogger
 
 FULL_DATA_COUNTRIES = [
     "austria",
@@ -233,7 +232,7 @@ def test(
             encoder = get_encoder(
                 model_name=backbone_name,
                 device=device,
-                weights_path=encoder_ckpt_path,  # ← your requested update
+                weights_path=encoder_ckpt_path,  
             )
             encoder.eval()
 
@@ -260,7 +259,6 @@ def test(
                 raise ValueError(f"GFM backbone {backbone_name} not supported!")
         else:
             preprocessing = "none"
-
     # CLAY metadata file
     metadata_path = None
     if preprocessing == "clay":
@@ -284,7 +282,7 @@ def test(
         metadata_path=metadata_path,
     )
 
-    dl = DataLoader(ds, batch_size=64, shuffle=False, num_workers=12)
+    dl = DataLoader(ds, batch_size=64, shuffle=False, num_workers=1)
     print(f"  → Loaded {len(ds)} samples in {time.time() - tic:.2f}s")
 
     # ---------------------------------------------

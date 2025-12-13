@@ -101,11 +101,13 @@ class FTW(NonGeoDataset):
         self.temporal_options = temporal_options
         self.num_samples = num_samples
         self.swap_order = swap_order
-        if metadata_path is None and self.preprocessing == "clay":
-            self.with_metadata = False
-        else:
+        if metadata_path != None and self.preprocessing == "clay":
             self.with_metadata = True
+        else:
+            self.with_metadata = False
             self.metadata_path = metadata_path
+        print("METADATA used: ",  self.with_metadata)
+        print("Preprocessing method: ", self.preprocessing)
 
         if self.load_boundaries:
             print("Loading 3 Class Masks, with Boundaries")

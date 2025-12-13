@@ -56,7 +56,7 @@ class preprocess_dinov3:
         self.norm_constant = norm_constant
 
     def __call__(self, sample: dict) -> dict:
-        image = sample["image"] / self.norm_constant        # [C,H,W]
+        image = sample["image"][:3,:,:] / self.norm_constant        # [C,H,W]
         mean = self.mean.to(image.device).view(-1,1,1)  # [C,1,1]
         std  = self.std.to(image.device).view(-1,1,1)
         sample["image"] = (image - mean) / std
@@ -133,10 +133,8 @@ def prepare_general_sample(
     preprocess: callable,
 ):
     image, lat, lon = load_image(image_path)
-    image = preprocess(image)
-    return {
-        "image": image,
-    }
+    image = preprocess({"image":image})
+    return image
 
 def prepare_clay_sample(
     image_path: str,

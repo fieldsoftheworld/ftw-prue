@@ -282,7 +282,7 @@ def test(
         metadata_path=metadata_path,
     )
 
-    dl = DataLoader(ds, batch_size=64, shuffle=False, num_workers=1)
+    dl = DataLoader(ds, batch_size=64, shuffle=False, num_workers=12)
     print(f"  → Loaded {len(ds)} samples in {time.time() - tic:.2f}s")
 
     # ---------------------------------------------

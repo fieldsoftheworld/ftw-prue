@@ -31,7 +31,7 @@ export COUNTRY_SPLIT=${COUNTRY_SPLIT:-test}
 
 GPU=0
 
-echo "🚀 GFM Evaluation | Model filter: ${MODEL_FILTER:-ALL} | Expr: $EXPR_TYPE"
+echo "🚀 GFM Evaluation | Model: ${MODEL_FILTER:-ALL} | Expr: $EXPR_TYPE | Input: $INPUT_TYPE"
 
 # =========================================
 # Pretrained encoder weight lookup

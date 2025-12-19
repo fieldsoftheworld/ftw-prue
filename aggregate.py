@@ -3,10 +3,10 @@ import glob
 import os
 import argparse 
 
-def calculate_overall_average_metrics(directory_path: str):
+def calculate_overall_average_metrics(directory_path: str, expr_type:str="main"):
     
     # We will search for all files in the model's directory
-    file_list = glob.glob(os.path.join(directory_path, '*'))
+    file_list = glob.glob(os.path.join(directory_path, f'*_{expr_type}.json'))
     
     if not file_list:
         print(f"Error: No files found in '{directory_path}'.")
@@ -70,7 +70,7 @@ if __name__ == "__main__":
         description="Calculate the single overall average performance metrics for a specified model."
     )
 
-    # 1. Define 'model' as a required argument with a flag
+    # Define 'model' as a required argument with a flag
     parser.add_argument(
         "--model", 
         type=str, 
@@ -78,7 +78,15 @@ if __name__ == "__main__":
         help="The name of the model whose results to average (e.g., terramind). Results must be in results/<model_name>"
     )
 
-    # 2. Define 'result_dir' as an optional argument with a flag and a default value
+    # Define 'model' as a required argument with a flag
+    parser.add_argument(
+        "--expr", 
+        type=str, 
+        required=True, # Ensure the user still provides this one
+        help="The name of the experiment type whose results to average (e.g., main or supp)."
+    )
+
+    # Define 'result_dir' as an optional argument with a flag and a default value
     parser.add_argument(
         "--result_dir",
         default="/u/subashk/storage/ftw-prue/results", # Use your actual path
@@ -90,4 +98,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Run the main function
-    calculate_overall_average_metrics(os.path.join(args.result_dir, args.model))
+    calculate_overall_average_metrics(os.path.join(args.result_dir, args.model),expr_type=args.expr)

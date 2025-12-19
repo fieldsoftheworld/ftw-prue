@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 # =========================================
 # AGGREGATION SETUP (Using relative paths)
@@ -93,7 +92,8 @@ run_aggregation() {
     # Use the --result_dir flag to specify the relative path
     python "$AGGREGATE_SCRIPT" \
         --model "$model_name" \
-        --result_dir "$RESULT_DIR_BASE"
+        --result_dir "$RESULT_DIR_BASE" \
+        --expr "$EXPR_TYPE"
 }
 
 

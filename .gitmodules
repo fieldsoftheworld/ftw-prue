@@ -1,0 +1,3 @@
+[submodule "src/models/ftw"]
+	path = src/models/ftw
+	url = https://github.com/fieldsoftheworld/ftw-baselines.git

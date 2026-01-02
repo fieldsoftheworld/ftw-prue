@@ -12,7 +12,7 @@ from intermediate_formats import SemanticOutput, InstanceOutput, PanopticOutput
 class Detections:
     """
     A dataclass to store and handle detections from various models.
-    Supports both mask-based and polygon-based formats for comprehensive evaluation.
+    Supports both mask-based and polygon-based formats.
     """
     xyxy: np.ndarray
     mask: Optional[np.ndarray] = None
@@ -47,8 +47,6 @@ class Detections:
     def from_semantic_logits(cls, semantic_logits: SemanticOutput, field_class_id: int = 1, min_area: int = 0) -> Detections:
         """
         Creates a Detections instance from SemanticOutput.
-        
-        Uses rasterio.features.shapes() to match the paper's polygonization approach exactly.
         
         Args:
             semantic_logits: SemanticOutput object containing model outputs
@@ -175,57 +173,19 @@ class Detections:
         )
 
     @classmethod
-    def from_panoptic_output(cls, panoptic_output: PanopticOutput, min_area: int = 0, include_stuff: bool = False) -> Detections:
+    def from_panoptic_output(cls, panoptic_output: PanopticOutput, min_area: int = 0) -> Detections:
         """
         Creates a Detections instance from PanopticOutput.
         
         Args:
             panoptic_output: PanopticOutput object containing model outputs
             min_area: Minimum area threshold for instances
-            include_stuff: Whether to include "stuff" classes (default: False, only "things")
             
         Returns:
             Detections object with instance detections
         """
-        # Extract thing instances first
+        # Extract thing instances
         thing_instances = panoptic_output.to_instance_masks()
-        
-        # Optionally include stuff segments that correspond to the field class (category_id==1)
-        if include_stuff:
-            masks = []
-            scores = []
-            class_ids = []
-            if thing_instances.num_instances > 0:
-                masks.append(thing_instances.masks)
-                scores.append(thing_instances.scores)
-                class_ids.append(thing_instances.class_ids if thing_instances.class_ids is not None else np.zeros(thing_instances.num_instances, dtype=int))
-            # Add stuff segments with category_id==1
-            for seg in panoptic_output.segments_info:
-                if not seg.get('isthing', False) and int(seg.get('category_id', -1)) == 1:
-                    seg_id = int(seg['id'])
-                    mask = (panoptic_output.seg_map == seg_id).astype(np.uint8)
-                    masks.append(mask[None, ...])
-                    # Warn if score is missing and default to 1.0
-                    _score = seg.get('score', None)
-                    if _score is None:
-                        try:
-                            import warnings
-                            warnings.warn(
-                                f"Panoptic segment missing 'score'; defaulting to 1.0 (image_id={panoptic_output.image_id}, seg_id={seg_id})"
-                            )
-                        except Exception:
-                            pass
-                        _score = 1.0
-                    scores.append(np.array([float(_score)]))
-                    class_ids.append(np.array([1]))
-            if masks:
-                masks = np.concatenate(masks, axis=0)
-                scores = np.concatenate(scores, axis=0)
-                class_ids = np.concatenate(class_ids, axis=0)
-                all_instances = InstanceOutput(masks=masks, scores=scores, class_ids=class_ids)
-            else:
-                all_instances = thing_instances
-            return cls.from_instance_masks(all_instances, min_area=min_area)
         
         # Things only
         return cls.from_instance_masks(thing_instances, min_area=min_area)

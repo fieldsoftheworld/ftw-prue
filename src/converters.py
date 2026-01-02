@@ -1,7 +1,6 @@
 """
 Converter functions to transform model-specific outputs to intermediate formats.
-
-This module contains all model-specific conversion logic, keeping the intermediate
+The module contains all model-specific conversion logic, keeping the intermediate
 formats and Detections class model-agnostic.
 
 Usage:
@@ -25,7 +24,7 @@ def convert_baseline_output(
     image_id: Optional[int] = None
 ) -> SemanticOutput:
     """
-    Convert baseline model (UNet, DeepLabV3+, FCSiamDiff, etc.) output to SemanticLogits.
+    Convert baseline model (UNet, DeepLabV3+, etc.) output to SemanticLogits.
     
     Args:
         model_output: Model logits of shape (num_classes, H, W) or (B, num_classes, H, W)
@@ -241,15 +240,16 @@ def convert_delineate_anything_output(
 
 
 # ============================================================================
-# Panoptic Segmentation Models (Mask2Former, OneFormer, MaskDINO)
+# Panoptic Segmentation Models (Mask2Former, etc.)
 # ============================================================================
 
-def convert_mask2former_panoptic_output(
+def convert_d2_panoptic_output(
     model_output: Dict[str, Any],
     image_id: Optional[int] = None
 ) -> PanopticOutput:
     """
-    Convert Mask2Former/OneFormer/MaskDINO panoptic output to PanopticOutput.
+    Convert Mask2Former/etc panoptic output to PanopticOutput.
+    Hypothetically should support other panoptic-segmentation models like MaskDINO and OneFormer which are also based on detectron2. 
     
     Model outputs a dict with:
     - 'panoptic_seg': Tuple of (seg_map, segments_info)
@@ -282,7 +282,7 @@ def convert_mask2former_panoptic_output(
         seg_map=seg_map,
         segments_info=segments_info,
         image_id=image_id,
-        metadata={'model_type': 'mask2former_panoptic'}
+        metadata={'model_type': 'd2_panoptic'}
     )
 
 

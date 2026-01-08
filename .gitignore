@@ -210,3 +210,5 @@ data/
 logs/
 gfm_ckpts/
 results/
+scratch/
+configs/local/

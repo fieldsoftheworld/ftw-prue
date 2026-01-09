@@ -72,6 +72,7 @@ class FTWDataModule(LightningDataModule):
         self.load_boundaries = kwargs.pop("load_boundaries", False)
         self.input_type = kwargs.pop("input_type", "images")
         self.feat_root = kwargs.pop("feat_root", None)
+        self.compute_boundary_distance = kwargs.pop("compute_boundary_distance", False)
         if self.input_type == "features" and self.feat_root is None:
             raise ValueError("feat_root must be specified when input_type is 'features'")
         if self.input_type == "features" and self.feat_root is not None:
@@ -151,6 +152,7 @@ class FTWDataModule(LightningDataModule):
                 preprocessing=self.preprocessing,
                 metadata_path=self.metadata_path,
             )
+            self.train_dataset.compute_boundary_distance = self.compute_boundary_distance
         if stage in ["fit", "validate"]:
             self.val_dataset = FTW(
                 root=self.root,
@@ -164,6 +166,7 @@ class FTWDataModule(LightningDataModule):
                 preprocessing=self.preprocessing,
                 metadata_path=self.metadata_path,
             )
+            self.val_dataset.compute_boundary_distance = self.compute_boundary_distance
         if stage == "test":
             self.test_dataset = FTW(
                 root=self.root,
@@ -177,6 +180,7 @@ class FTWDataModule(LightningDataModule):
                 preprocessing=self.preprocessing,
                 metadata_path=self.metadata_path,
             )
+            self.test_dataset.compute_boundary_distance = self.compute_boundary_distance
 
     def train_dataloader(self) -> Any:
         return DataLoader(

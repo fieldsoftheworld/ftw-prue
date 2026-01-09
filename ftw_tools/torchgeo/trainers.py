@@ -29,6 +29,26 @@ import wandb
 from ..postprocess.metrics import get_object_level_metrics
 from .losses import logCoshDice, logCoshDiceCE
 
+
+def to_one_hot(tensor, num_classes, presence_only):
+    """Convert mask/boundary to one-hot + valid mask."""
+    valid_mask = (tensor != 3).float() if presence_only else torch.ones_like(tensor, dtype=torch.float32)
+    tensor_proc = tensor.clone()
+    tensor_proc[tensor_proc == 3] = 0
+    if tensor_proc.ndim == 3:
+        tensor_proc = tensor_proc.unsqueeze(1)
+    one_hot = torch.zeros(
+        tensor_proc.size(0),
+        num_classes,
+        tensor_proc.size(2),
+        tensor_proc.size(3),
+        dtype=torch.float32,
+        device=tensor_proc.device,
+    )
+    one_hot.scatter_(1, tensor_proc.long(), 1)
+    return one_hot, valid_mask.unsqueeze(1)
+
+
 class CustomSemanticSegmentationTask(BaseTask):
     """Semantic Segmentation.
 
@@ -114,6 +134,8 @@ class CustomSemanticSegmentationTask(BaseTask):
         self.class_names = ["background", "field", "boundary", "unknown"]
         self.weights = weights
         super().__init__()
+        if model == "decode":
+            self.hparams["loss"] = "decode"
         print(self.hparams)
 
     def configure_losses(self) -> None:
@@ -177,9 +199,23 @@ class CustomSemanticSegmentationTask(BaseTask):
                                           classes=self.hparams["num_classes"],
                                           class_weights=class_weights,
                                           ignore_index=ignore_index)
+        elif loss == "decode":
+            import sys
+            from pathlib import Path
+            decode_path = Path(__file__).resolve().parents[2] / "decode"
+            if str(decode_path) not in sys.path:
+                sys.path.insert(0, str(decode_path))
+            from fractal_resunet.nn.loss.custom_aux_loss import MultiTaskLoss
+            model_kwargs = self.hparams.get("model_kwargs", {})
+            self.criterion = MultiTaskLoss(
+                depth=model_kwargs.get("depth", 5),
+                seg_weight=model_kwargs.get("seg_weight", 1.0),
+                bound_weight=model_kwargs.get("bound_weight", 1.0),
+                dist_weight=model_kwargs.get("dist_weight", 1.0),
+            )
         else:
             raise ValueError(f"Loss type '{loss}' is not valid. "
-                             "Currently supports: 'ce', 'jaccard', 'focal', 'dice', 'ce+dice', 'logcoshdice', 'logcoshdice+ce'."
+                             "Currently supports: 'ce', 'jaccard', 'focal', 'dice', 'ce+dice', 'logcoshdice', 'logcoshdice+ce', 'decode'."
             )
 
 
@@ -321,11 +357,35 @@ class CustomSemanticSegmentationTask(BaseTask):
 
             print("[GFM] Using standalone encoder + SegmentationHead decoder")
 
+        elif model == "decode":
+            import sys
+            from pathlib import Path
+            decode_path = Path(__file__).resolve().parents[2] / "decode"
+            if str(decode_path) not in sys.path:
+                sys.path.insert(0, str(decode_path))
+            from fractal_resunet.models.semanticsegmentation.FracTAL_ResUNet import (
+                FracTAL_ResUNet_cmtsk
+            )
+            self.model = FracTAL_ResUNet_cmtsk(
+                nfilters_init=model_kwargs.get("nfilters_init", 32),
+                NClasses=num_classes,
+                depth=model_kwargs.get("depth", 5),
+                ftdepth=model_kwargs.get("ftdepth", 5),
+                psp_depth=model_kwargs.get("psp_depth", 4),
+                norm_type=model_kwargs.get("norm_type", "BatchNorm"),
+                norm_groups=model_kwargs.get("norm_groups", None),
+                nheads_start=model_kwargs.get("nheads_start", 8),
+                in_channels=in_channels,
+            )
+            if weights and isinstance(weights, str) and Path(weights).exists():
+                state_dict = torch.load(weights, map_location="cpu")
+                self.model.load_state_dict(state_dict, strict=False)
+            print("[DECODE] Using FracTAL ResUNet model")
 
         else:
             raise ValueError(
                 f"Model type '{model}' is not valid. "
-                "Currently, only supports 'pretrained', 'unet', 'deeplabv3+', and 'fcn', 'upernet', 'segformer', and 'dpt'."
+                "Currently, only supports 'pretrained', 'unet', 'deeplabv3+', 'fcn', 'upernet', 'segformer', 'dpt', 'gfm', and 'decode'."
             )
 
         # Freeze backbone
@@ -355,16 +415,16 @@ class CustomSemanticSegmentationTask(BaseTask):
     def forward(self, x):
         model_type = self.hparams["model"]
 
-        # ---------- GFM MODEL ----------
         if model_type == "gfm":
-            feats = self.backbone(x)     # encoder forward
-            return self.model({'feat': feats})     # segmentation head forward
+            feats = self.backbone(x)
+            return self.model({'feat': feats})
 
-        # ---------- PRECOMPUTED FEATURES MODEL ----------
         if model_type == "pretrained":
             return self.model(x)
 
-        # ---------- SMP / UNET / DEEPLAB ETC ----------
+        if model_type == "decode":
+            return self.model(x)
+
         return self.model(x)
 
 
@@ -397,15 +457,30 @@ class CustomSemanticSegmentationTask(BaseTask):
                 }
             else:
                 x = batch["image"]
-
         elif "feat" in batch and self.hparams["model"] == "pretrained":
             x = batch["feat"]
         else:
             x = batch["image"]
-        # import code;code.interact(local=dict(globals(), **locals()));
-        y = batch["mask"].squeeze(1)
-        y_hat = self(x)
-        loss: Tensor = self.criterion(y_hat, y)
+
+        if self.hparams["model"] == "decode":
+            y_hat_tuple = self(x)
+            y_seg = batch["mask"].squeeze(1)
+            y_bound = batch["boundary"].squeeze(1)
+            y_dist = batch["distance"].squeeze(1)
+            
+            num_classes = self.hparams["num_classes"]
+            presence_only = self.hparams.get("presence_only", False)
+            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only)
+            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only)
+            
+            labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1)]
+            loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
+            y_hat = y_hat_tuple[0]
+            y = y_seg
+        else:
+            y = batch["mask"].squeeze(1)
+            y_hat = self(x)
+            loss: Tensor = self.criterion(y_hat, y)
         self.log(
             "train/loss",
             loss,
@@ -443,16 +518,30 @@ class CustomSemanticSegmentationTask(BaseTask):
                 }
             else:
                 x = batch["image"]
-
         elif "feat" in batch and self.hparams["model"] == "pretrained":
             x = batch["feat"]
         else:
             x = batch["image"]
 
-        y = batch["mask"].squeeze(1)
-        # import code;code.interact(local=dict(globals(), **locals()));
-        y_hat = self(x)
-        loss: Tensor = self.criterion(y_hat, y)
+        if self.hparams["model"] == "decode":
+            y_hat_tuple = self(x)
+            y_seg = batch["mask"].squeeze(1)
+            y_bound = batch["boundary"].squeeze(1) if "boundary" in batch else None
+            y_dist = batch["distance"].squeeze(1) if "distance" in batch else None
+            
+            num_classes = self.hparams["num_classes"]
+            presence_only = self.hparams.get("presence_only", False)
+            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only)
+            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only) if y_bound is not None else (None, None)
+            
+            labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1) if y_dist is not None else None]
+            loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
+            y_hat = y_hat_tuple[0]
+            y = y_seg
+        else:
+            y = batch["mask"].squeeze(1)
+            y_hat = self(x)
+            loss: Tensor = self.criterion(y_hat, y)
 
         for i in range(y_hat.shape[0]):
             output = y_hat[i].argmax(dim=0).cpu().numpy().astype(np.uint8)
@@ -522,14 +611,29 @@ class CustomSemanticSegmentationTask(BaseTask):
                 x = batch["image"]
 
         elif "feat" in batch and self.hparams["model"] == "pretrained":
-            x =  batch["feat"]
+            x = batch["feat"]
         else:
             x = batch["image"]
 
-        y = batch["mask"].squeeze(1)
-        # import code;code.interact(local=dict(globals(), **locals()));
-        y_hat = self(x)
-        loss: Tensor = self.criterion(y_hat, y)
+        if self.hparams["model"] == "decode":
+            y_hat_tuple = self(x)
+            y_seg = batch["mask"].squeeze(1)
+            y_bound = batch["boundary"].squeeze(1) if "boundary" in batch else None
+            y_dist = batch["distance"].squeeze(1) if "distance" in batch else None
+            
+            num_classes = self.hparams["num_classes"]
+            presence_only = self.hparams.get("presence_only", False)
+            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only)
+            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only) if y_bound is not None else (None, None)
+            
+            labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1) if y_dist is not None else None]
+            loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
+            y_hat = y_hat_tuple[0]
+            y = y_seg
+        else:
+            y = batch["mask"].squeeze(1)
+            y_hat = self(x)
+            loss: Tensor = self.criterion(y_hat, y)
         self.log("test_loss", loss)
         self.test_metrics.update(y_hat, y)
 
@@ -549,6 +653,17 @@ class CustomSemanticSegmentationTask(BaseTask):
             "optimizer": optimizer,
             "lr_scheduler": {"scheduler": scheduler, "monitor": self.monitor},
         }
+
+    def on_fit_start(self) -> None:
+        """Called at the beginning of fit."""
+        if self.hparams["model"] == "decode" and hasattr(self.trainer, "datamodule"):
+            self.trainer.datamodule.compute_boundary_distance = True
+            if hasattr(self.trainer.datamodule, "train_dataset"):
+                self.trainer.datamodule.train_dataset.compute_boundary_distance = True
+            if hasattr(self.trainer.datamodule, "val_dataset"):
+                self.trainer.datamodule.val_dataset.compute_boundary_distance = True
+            if hasattr(self.trainer.datamodule, "test_dataset"):
+                self.trainer.datamodule.test_dataset.compute_boundary_distance = True
 
     def on_train_epoch_start(self) -> None:
         lr = self.optimizers().param_groups[0]["lr"]

@@ -1,11 +1,10 @@
 import pandas as pd
 import glob
 import os
-import argparse 
+import argparse
 
-def calculate_overall_average_metrics(directory_path: str, expr_type:str="main"):
-    
-    # We will search for all files in the model's directory
+
+def calculate_overall_average_metrics(directory_path: str, expr_type: str = "main"):
     file_list = glob.glob(os.path.join(directory_path, f'*_{expr_type}.json'))
     
     if not file_list:
@@ -15,7 +14,6 @@ def calculate_overall_average_metrics(directory_path: str, expr_type:str="main")
 
     all_data_frames = []
     
-    # List of expected metric columns for averaging
     metric_cols = [
         'pixel_level_iou',
         'pixel_level_precision',
@@ -25,15 +23,12 @@ def calculate_overall_average_metrics(directory_path: str, expr_type:str="main")
         'object_level_f1'
     ]
     
-    # 1. Read and Combine Data
-    print(f"Found {len(file_list)} files. Reading data as CSV/Text...")
+    print(f"Found {len(file_list)} files. Reading data...")
 
     for file_path in file_list:
         try:
-            # Read each file as CSV (as determined from your provided content)
             df_file = pd.read_csv(file_path, header=0)
             all_data_frames.append(df_file)
-
         except pd.errors.EmptyDataError:
             print(f"Warning: File {os.path.basename(file_path)} is empty. Skipping.")
         except Exception as e:
@@ -48,54 +43,42 @@ def calculate_overall_average_metrics(directory_path: str, expr_type:str="main")
     for col in metric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
-        
 
     valid_metric_cols = [col for col in metric_cols if col in df.columns]
     
     overall_average = df[valid_metric_cols].mean().to_frame().T
-    
     overall_average.index = ['Overall Average']
-    
     
     print("\n" + "="*70)
     print("="*70)
-    
     print(overall_average.to_string(float_format='%.3f'))
-    
 
 
 if __name__ == "__main__":
-    # Initialize the argument parser
     parser = argparse.ArgumentParser(
         description="Calculate the single overall average performance metrics for a specified model."
     )
 
-    # Define 'model' as a required argument with a flag
     parser.add_argument(
-        "--model", 
-        type=str, 
-        required=True, # Ensure the user still provides this one
+        "--model",
+        type=str,
+        required=True,
         help="The name of the model whose results to average (e.g., terramind). Results must be in results/<model_name>"
     )
 
-    # Define 'model' as a required argument with a flag
     parser.add_argument(
-        "--expr", 
-        type=str, 
-        required=True, # Ensure the user still provides this one
+        "--expr",
+        type=str,
+        required=True,
         help="The name of the experiment type whose results to average (e.g., main or supp)."
     )
 
-    # Define 'result_dir' as an optional argument with a flag and a default value
     parser.add_argument(
         "--result_dir",
-        default="/u/subashk/storage/ftw-prue/results", # Use your actual path
+        default="./results",
         type=str,
-        help="The base directory containing the model results (e.g., /u/path/to/results)."
+        help="The base directory containing the model results."
     )
 
-    # Parse the arguments
     args = parser.parse_args()
-
-    # Run the main function
-    calculate_overall_average_metrics(os.path.join(args.result_dir, args.model),expr_type=args.expr)
+    calculate_overall_average_metrics(os.path.join(args.result_dir, args.model), expr_type=args.expr)

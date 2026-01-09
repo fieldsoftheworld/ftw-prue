@@ -132,3 +132,44 @@ All arguments are optional and use defaults from `path_config` if not provided.
 - **CLAY**: Requires `metadata.yaml` with GSD and wavelength information
 - **DINOv3**: Automatically extracts RGB from 4-channel images
 - **Galileo models**: Automatically handle 4-band to 13-band conversion and normalization
+
+## Example Commands
+
+### Compute Features for Dataset
+
+Extract embeddings for all images using a pretrained model:
+
+```bash
+python -m pretrained.models.compute_feats --model clay --batch_size 32
+```
+
+With custom paths:
+
+```bash
+python -m pretrained.models.compute_feats \
+    --model terrafm \
+    --data_path /path/to/ftw/data \
+    --metadata /path/to/metadata.yaml \
+    --output_dir /path/to/output \
+    --batch_size 32
+```
+
+Available models: `clay`, `terrafm`, `dinov3`, `terramind`, `croma`, `decur`, `dofa`, `prithvi`, `satlas`, `softcon`, `galileo`
+
+### Using Python API
+
+```python
+import torch
+from pretrained.pretrained_factory import get_encoder
+from pretrained.models.model_utils import get_model_and_preprocess, load_image, preprocess_general
+
+device = torch.device("cuda")
+encoder, preprocess, _, _ = get_model_and_preprocess("terrafm", device=device)
+
+image, _, _ = load_image("path/to/image.tif")
+sample = preprocess({"image": image})
+image_tensor = sample["image"].unsqueeze(0).to(device)
+
+with torch.no_grad():
+    embeddings = encoder(image_tensor)
+```

@@ -1,69 +1,91 @@
-# 🌾 ftw-prue: Field Boundary Segmentation
+# ftw-prue: Field Boundary Segmentation
 
 Official repository for "PRUE: A Practical Recipe for Field Boundary Segmentation at Scale".
 
-This branch focuses on experiments related to GFM (Geospatial Feature Matching) described in the paper.
 
----
+## Overview
 
-## 💾 Data Setup
+This codebase provides:
+- Support for multiple pretrained encoders (CLAY, TerraFM, DINOv3, TeraMind, and Galileo benchmark models)
+- Training and evaluation pipelines for FTW based field boundary segmentation
+- Feature extraction utilities for precomputing embeddings
+- Unified interface for working with different encoder architectures
 
-1. Download the FTW (Fields of the World) dataset by following instructions in the [ftw-baselines repository](https://github.com/fieldsoftheworld/ftw-baselines).
-2. Place the dataset under the project’s `./data` directory.
+## Data Setup
 
----
+1. Download the FTW (Fields of the World) dataset following instructions in the [ftw-baselines repository](https://github.com/fieldsoftheworld/ftw-baselines)
+2. Place the dataset under `./data/ftw`
 
-## 🛠️ Environment Setup
+## Environment Setup
 
-Create and activate the Conda environment using the provided env.yaml:
+Create and activate the Conda environment:
 
-conda create -f env.yaml  
+```bash
+conda env create -f env.yaml
 conda activate ftw
+```
 
----
+## Pretrained Models
 
-## 🚀 Training
+The repository supports multiple pretrained encoders for feature extraction:
 
-Training is performed via the ./train_gfm.sh script.
+- Foundation models: `clay`, `terrafm`, `dinov3`, `terramind`
+- Galileo benchmark models: `croma`, `decur`, `dofa`, `prithvi`, `satlas`, `softcon`, `galileo`
 
-Command structure:
+Model checkpoints should be placed in `gfm_ckpts/encoders/` (or set `FTW_CKPT_BASE_DIR` environment variable).
 
-`./train_gfm.sh <model_filter> <input_type> [<feat_root_base>] [<wandb_mode>]`
+For detailed usage and API documentation, see [pretrained/README.md](pretrained/README.md).
 
-Arguments:
+## Training
 
-- `<input_type>`: Specifies the type of input data.  
-    • `"images_noaug"` → use raw images from the FTW dataset  
-    • `"features"` → use precomputed embeddings  
-- `<feat_root_base>`: Path where precomputed features are stored (required only when using `input_type="features"`).
+Training is performed using the `train_gfm.sh` script:
 
-(💡 For full details including model list, overrides, and logging options, inspect `train_gfm.sh`.)
+```bash
+./train_gfm.sh <model_name> <input_type> [<feat_root>] [<log_mode>]
+```
 
----
+**Arguments:**
+- `model_name`: Model to train (e.g., `clay`, `terrafm`, `croma`)
+- `input_type`: `images_noaug` (raw images) or `features` (precomputed embeddings)
+- `feat_root`: Path to precomputed features (required when `input_type=features`)
+- `log_mode`: Logging mode (default: `disabled`)
 
-## 📊 Evaluation
+**Example:**
+```bash
+./train_gfm.sh clay images_noaug disabled
+./train_gfm.sh terrafm features /path/to/features disabled
+```
 
-To run evaluation you must first download **both encoders and decoders** used in the GFM experiments.
+## Evaluation
 
-Each model has **its own decoder directory** under:  
-- gfm_ckpts/decoders/main/<model_name>/  
-- gfm_ckpts/decoders/supp/<model_name>/
+Evaluation requires both encoder and decoder checkpoints. Decoder checkpoints should be placed under:
+- `gfm_ckpts/decoders/main/<model_name>/`
+- `gfm_ckpts/decoders/supp/<model_name>/`
 
+Run evaluation:
 
----
+```bash
+./eval_gfm.sh <model_filter> <experiment> <input_type> [<feat_root_base>]
+```
 
-Evaluation is run using:
+**Arguments:**
+- `model_filter`: `all` or specific model name (e.g., `clay`)
+- `experiment`: `main` or `supp`
+- `input_type`: `images_noaug` or `features`
+- `feat_root_base`: Directory with precomputed features (required when `input_type=features`)
 
-`./eval_gfm.sh <model_filter> <experiment> <input_type> [<feat_root_base>]`
+**Example:**
+```bash
+./eval_gfm.sh all main features /path/to/features
+./eval_gfm.sh clay main images_noaug
+```
 
-Arguments:
+## Feature Extraction
 
-- `<model_filter>`: Which models to evaluate.  
-    • `"all"` or a specific model like `"clay"`  
-- `<experiment>`: Which experiment configuration to load.  
-    • `"main"` or `"supp"`  
-- `<input_type>`: Input type to evaluate on.  
-    • `"images_noaug"` or `"features"`  
-- `<feat_root_base>`: Directory containing precomputed features (required only when `input_type="features"`).
+To precompute embeddings for the entire dataset:
 
-(💡 Refer to `eval_gfm.sh` for full configuration details and usage examples.)
+```bash
+python -m pretrained.models.compute_feats --model <model_name> --batch_size 32
+```
+
+This extracts embeddings for all Sentinel-2 images and saves them as `.npz` files. See `pretrained/README.md` for detailed options.

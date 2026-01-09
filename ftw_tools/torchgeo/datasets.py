@@ -9,12 +9,37 @@ import geopandas as gpd
 import numpy as np
 import rasterio
 import torch
+from scipy.ndimage import maximum_filter, minimum_filter, distance_transform_edt
 from torch import Tensor
 from torchgeo.datasets import NonGeoDataset, RasterDataset
 
 from ftw_tools.settings import ALL_COUNTRIES, TEMPORAL_OPTIONS
 from ftw_tools.utils import validate_checksums
 from pretrained.models.model_utils import get_preprocessor, prepare_clay_sample, prepare_general_sample
+
+
+def get_boundary(mask):
+    """Compute boundary from mask."""
+    m = mask.copy()
+    m[m == 3] = 0
+    field_mask = (m > 0).astype(np.uint8)
+    local_max = maximum_filter(m, size=3)
+    local_min = minimum_filter(m, size=3)
+    boundary = ((local_max != local_min) & (field_mask > 0)).astype(np.float32)
+    return boundary
+
+
+def get_distance(mask):
+    """Compute distance map from mask."""
+    m = mask.astype(np.int32)
+    if (m == 3).any():
+        m = m.copy()
+        m[m == 3] = 0
+    binmask = (m > 0).astype(np.uint8)
+    distance_map = distance_transform_edt(binmask)
+    if distance_map.max() > 0:
+        distance_map = distance_map / distance_map.max()
+    return distance_map.astype(np.float32)
 
 class SingleRasterDataset(RasterDataset):
     """A torchgeo dataset that loads a single raster file."""
@@ -101,6 +126,7 @@ class FTW(NonGeoDataset):
         self.temporal_options = temporal_options
         self.num_samples = num_samples
         self.swap_order = swap_order
+        self.compute_boundary_distance = False
         if metadata_path != None and self.preprocessing == "clay":
             self.with_metadata = True
         else:
@@ -413,5 +439,11 @@ class FTW(NonGeoDataset):
             with rasterio.open(img_filenames["mask"]) as f:
                 mask = f.read(1)
             sample["mask"] = torch.from_numpy(mask).long()
+            
+            if self.compute_boundary_distance:
+                boundary = get_boundary(mask)
+                distance = get_distance(mask)
+                sample["boundary"] = torch.from_numpy(np.expand_dims(boundary, 0)).float()
+                sample["distance"] = torch.from_numpy(np.expand_dims(distance, 0)).float()
 
         return sample

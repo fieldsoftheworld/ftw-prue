@@ -1,4 +1,4 @@
-# ftw-prue: Field Boundary Segmentation
+# 👩‍🍳 <span style="color:purple">PRUE</span>: A <span style="color:purple">P</span>ractical <span style="color:purple">R</span>ecipe for Field Bo<span style="color:purple">u</span>ndary S<span style="color:purple">e</span>gmentation at Scale
 
 Official repository for "PRUE: A Practical Recipe for Field Boundary Segmentation at Scale".
 

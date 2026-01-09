@@ -1,0 +1,30 @@
+# Core dependencies
+numpy==1.26.4
+cython
+scipy
+shapely
+timm
+h5py
+submitit
+scikit-image
+
+# Configuration and utilities
+yacs
+termcolor
+psutil
+
+# Model utilities
+pykeops
+ptflops
+
+# Note: The following packages are installed from local directories via create_env.sh:
+# - detectron2 (from ./detectron2)
+# - panopticapi (from ./panopticapi)
+#
+# The following are installed via conda:
+# - opencv (conda install -c conda-forge opencv)
+# - rasterio (conda install -c conda-forge rasterio)
+# - gdal (conda install -c conda-forge gdal)
+#
+# PyTorch is installed separately with CUDA support:
+# pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121

@@ -5,13 +5,9 @@ import pandas as pd
 import torch
 from torch.utils.data import Dataset
 import rasterio
-import cv2
 from scipy import ndimage
-from skimage.morphology import skeletonize
 from scipy.ndimage import maximum_filter, minimum_filter
 
-# Utility functions that handles presence case
-## With a simple 3x3 neighborhood difference
 def get_boundary(mask):
     m = mask.copy()
     m[m == 3] = 0
@@ -20,42 +16,8 @@ def get_boundary(mask):
     local_max = maximum_filter(m, size=3)
     local_min = minimum_filter(m, size=3)
     boundary = ((local_max != local_min) & (field_mask > 0)).astype(np.float32)
-
-    # valid = (m != 3)
-    # boundary = ((local_max != local_min) & valid & field_mask).astype(np.float32)
     return boundary
-    
 
-
-## with dilation
-# def get_boundary(mask, dilation_iter=1):
-#     m = mask.astype(np.int32)
-#     if (m == 3).any():
-#         m = m.copy()
-#         m[m == 3] = 0
-#     binmask = (m > 0).astype(np.uint8)
-#     dilated = cv2.dilate(binmask, kernel=np.ones((3, 3), np.uint8), iterations=dilation_iter)
-#     boundary = dilated - binmask
-#     return (boundary > 0).astype(np.float32)
-
-# ## with distance transform for edges
-# def get_boundary(mask):
-#     m = mask.copy()
-#     m[m == 3] = 0
-#     binmask = (m > 0).astype(np.uint8)
-#     distance = ndimage.distance_transform_edt(binmask)
-#     boundary = ((distance > 0) & (distance <= 1)).astype(np.float32)
-#     return boundary
-
-## with morphological gradient
-# def get_boundary(mask):
-#     m = mask.copy()
-#     m[m == 3] = 0
-#     binmask = (m > 0).astype(np.uint8)
-#     boundary = cv2.morphologyEx(binmask, cv2.MORPH_GRADIENT, kernel=np.ones((3, 3), np.uint8))
-#     return boundary.astype(np.float32)
-
-    
 def get_distance(mask):
     m = mask.astype(np.int32)
     if (m == 3).any():
@@ -81,14 +43,12 @@ class FTWMultiCountryDataset(Dataset):
     def __init__(self, root_dir, countries, split="train", load_boundaries=False,
                  temporal_option="stacked", crop_size=(256, 256), num_samples=-1):
 
-        # Normalize and validate countries
         if isinstance(countries, str):
             countries = [countries]
         for country in countries:
             assert country in self.valid_countries, f"Invalid country: {country}"
         self.countries = countries
 
-        # Validate split and temporal option
         assert split in self.valid_splits, f"Invalid split: {split}, must be one of {self.valid_splits}"
         assert temporal_option in self.valid_temporal_options, (
             f"Invalid temporal_option: {temporal_option}, must be one of {self.valid_temporal_options}"
@@ -103,8 +63,6 @@ class FTWMultiCountryDataset(Dataset):
         self.file_list = []
 
         self._build_file_list()
-
-        print(f"Running {self.split} for {self.countries}")
 
     def _build_file_list(self):
         for country in self.countries:
@@ -144,7 +102,6 @@ class FTWMultiCountryDataset(Dataset):
 
         if self.temporal_option == "stacked":
             image = np.concatenate([image_a, image_b], axis=0)
-            # image = np.concatenate([image_b, image_a], axis=0)
         elif self.temporal_option == "windowA":
             image = image_a
         elif self.temporal_option == "windowB":
@@ -153,7 +110,6 @@ class FTWMultiCountryDataset(Dataset):
         boundary = get_boundary(mask[0])
         distance = get_distance(mask[0])
 
-        # Convert to torch.Tensor
         return (
             torch.from_numpy(image_a),
             torch.from_numpy(image_b),
@@ -168,7 +124,7 @@ class FTWMultiCountryDataset(Dataset):
 
     def _read_image(self, path):
         with rasterio.open(path) as src:
-            img = src.read()  # (C, H, W)
+            img = src.read()
             img = img.astype(np.float32) / 3000.0
         return img
 

@@ -15,8 +15,6 @@ class combine_layers(nn.Module):
     def __init__(self, nfilters, norm_type='BatchNorm', norm_groups=None, **kwargs):
         super().__init__()
         
-        # This performs convolution, no BatchNormalization. No need for bias. 
-        # The UpSample needs to know the input channels (which are 2*nfilters from the lower resolution)
         self.up = UpSample(2*nfilters, norm_type=norm_type, norm_groups=norm_groups) 
 
         self.conv_normed = Conv2DNormed(
@@ -25,7 +23,7 @@ class combine_layers(nn.Module):
             padding=(0, 0), 
             norm_type=norm_type,
             norm_groups=norm_groups,
-            in_channels=2*nfilters,  # After concatenation of upsampled and skip connection
+            in_channels=2*nfilters,  
             out_channels=nfilters
         )
         

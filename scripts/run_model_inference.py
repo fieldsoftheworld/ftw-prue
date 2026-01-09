@@ -32,6 +32,16 @@ from converters import (
 )
 from ftw_tools.settings import ALL_COUNTRIES
 
+# Import registry-based segmenters (triggers registration via __init__.py)
+try:
+    from models.registry import create_segmenter, available_models
+    # Trigger adapter registration by importing models module
+    import models  # noqa: F401
+    REGISTRY_AVAILABLE = True
+except ImportError:
+    REGISTRY_AVAILABLE = False
+    print("Warning: Model registry not available, falling back to MODEL_RUNNERS")
+
 
 def _sort_dataset_filenames(ds):
     """
@@ -83,6 +93,11 @@ def run_ftw_inference(
 ) -> List[Detections]:
     """
     Run inference using FTW baseline model.
+    
+    ⚠️  DEPRECATED: This function is deprecated in favor of the registry-based
+    segmenter framework. Use `run_registry_inference()` with `--use_registry` flag instead.
+    
+    This function is kept for backward compatibility and will be removed in a future version.
     
     Args:
         data_dir: Directory containing the dataset
@@ -253,6 +268,11 @@ def run_decode_inference(
     """
     Run inference using DECODE model.
     
+    ⚠️  DEPRECATED: This function is deprecated in favor of the registry-based
+    segmenter framework. Use `run_registry_inference()` with `--use_registry` flag instead.
+    
+    This function is kept for backward compatibility and will be removed in a future version.
+    
     Args:
         data_dir: Directory containing the dataset
         model_weights: Path to model weights
@@ -397,6 +417,14 @@ def run_sam_inference(
 ) -> Dict[str, List[Detections]]:
     """
     Run inference using SAM model via AutomaticMaskGenerator and convert to Detections.
+    
+    ⚠️  DEPRECATED: This function is deprecated in favor of the registry-based
+    segmenter framework. Use `run_registry_inference()` with `--use_registry` flag instead.
+    
+    Note: This legacy function returns a per-country dict, while the registry path returns
+    a flat list. The saving logic handles both formats.
+    
+    This function is kept for backward compatibility and will be removed in a future version.
     
     Uses custom SAM setup (monkey-patching, custom registry, etc.)
     to match sam_controller.py behavior.
@@ -644,6 +672,10 @@ def run_delineate_anything_inference(
     """
     Run inference using DelineateAnything model.
     
+    ⚠️  NOTE: This function is NOT yet deprecated because DelineateAnything does not
+    have a registry-based segmenter implementation yet. Once a registry segmenter is
+    created for DelineateAnything, this function should be deprecated.
+    
     Args:
         data_dir: Directory containing the dataset
         model_weights: Path to model weights (or model name from registry)
@@ -781,7 +813,116 @@ def run_delineate_anything_inference(
     return detections_list
 
 
+def run_registry_inference(
+    model_name: str,
+    data_dir: str,
+    model_weights: str,
+    output_dir: str,
+    **kwargs
+) -> List[Detections]:
+    """
+    Run inference using registry-based segmenters.
+    
+    This is a unified inference path that works with all registry models.
+    """
+    print(f"Running {model_name} inference using registry...")
+    
+    # Prepare segmenter arguments
+    segmenter_kwargs = {
+        "model_weights": model_weights,
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+    }
+    
+    # Add model-specific arguments
+    if model_name == "sam":
+        segmenter_kwargs["model_type"] = kwargs.get("sam_model_type", "vit_h")
+        segmenter_kwargs["in_chans"] = kwargs.get("in_chans", 8)
+        if kwargs.get("config_file"):
+            import yaml
+            with open(kwargs["config_file"], "r") as f:
+                config = yaml.safe_load(f)
+            segmenter_kwargs["config"] = config
+    elif model_name == "decode":
+        if kwargs.get("config_file"):
+            segmenter_kwargs["config"] = kwargs["config_file"]
+    
+    # Create segmenter
+    segmenter = create_segmenter(model_name, **segmenter_kwargs)
+    
+    # Load dataset (same approach as legacy runners)
+    from ftw_tools.training.datasets import FTW
+    from ftw_tools.training.datamodules import preprocess
+    
+    countries = kwargs.get("countries", ["belgium"])
+    if isinstance(countries, str):
+        countries = [countries]
+    countries_sorted = sorted(countries)
+    
+    # Create dataset
+    ds = FTW(
+        root=data_dir,
+        countries=countries_sorted,
+        split=kwargs.get("split", "test"),
+        transforms=preprocess if model_name != "sam" else None,  # SAM handles preprocessing differently
+        load_boundaries=False,
+        temporal_options=kwargs.get("temporal_options", "stacked") if model_name in ["ftw", "decode"] else "stacked",
+    )
+    
+    # Sort filenames
+    _sort_dataset_filenames(ds)
+    
+    # Create dataloader
+    batch_size = kwargs.get("batch_size", 16)
+    dataloader = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=4)
+    
+    detections_list = []
+    logits_list = [] if kwargs.get("save_logits", False) else None
+    
+    # Run inference
+    with torch.inference_mode():
+        for batch_idx, batch in enumerate(tqdm(dataloader, desc=f"Processing {model_name} model")):
+            # Extract images from batch
+            if isinstance(batch, dict):
+                images = batch.get("image", batch.get("images"))
+            elif isinstance(batch, (list, tuple)):
+                images = batch[0] if len(batch) > 0 else batch
+            else:
+                images = batch
+            
+            # Run segmenter inference
+            outputs = list(segmenter.predict(images))
+            
+            # Process each output
+            for i, output in enumerate(outputs):
+                # Store raw outputs if requested
+                if logits_list is not None:
+                    logits_list.append(output)
+                
+                # Convert to Detections
+                if isinstance(output, SemanticOutput):
+                    detections = output.to_detections(
+                        field_class_id=1,
+                        min_area=kwargs.get("min_area", 0)
+                    )
+                elif isinstance(output, InstanceOutput):
+                    detections = output.to_detections(
+                        min_area=kwargs.get("min_area", 0),
+                        score_threshold=kwargs.get("confidence_threshold", 0.5)
+                    )
+                else:
+                    raise ValueError(f"Unexpected output type: {type(output)}")
+                
+                detections_list.append(detections)
+    
+    if logits_list is not None:
+        return detections_list, logits_list
+    return detections_list
+
+
 # Model registry
+# ⚠️  DEPRECATED: This dictionary maps to legacy inference functions.
+# Once registry-based inference is fully verified, these functions will be removed.
+# Use `run_registry_inference()` with `--use_registry` flag instead.
 MODEL_RUNNERS = {
     "ftw": run_ftw_inference,
     "ftw-cli": run_ftw_inference,
@@ -799,12 +940,24 @@ def main():
     )
     
     # Required arguments
+    model_choices = list(MODEL_RUNNERS.keys())
+    if REGISTRY_AVAILABLE:
+        # Add registry models to choices
+        registry_models = list(available_models().keys())
+        model_choices = list(set(model_choices + registry_models))
+    
     parser.add_argument(
         "--model", 
         type=str, 
         required=True,
-        choices=list(MODEL_RUNNERS.keys()),
+        choices=model_choices,
         help="Model type to run inference with"
+    )
+    parser.add_argument(
+        "--use_registry",
+        action="store_true",
+        default=False,
+        help="Use new registry-based segmenters instead of legacy MODEL_RUNNERS (experimental)"
     )
     parser.add_argument(
         "--data_dir", 
@@ -851,13 +1004,6 @@ def main():
         default=16,
         help="Batch size for processing"
     )
-    parser.add_argument(
-        "--temporal_options", 
-        type=str, 
-        default="stacked",
-        choices=["stacked", "window_a", "window_b"],
-        help="Temporal processing option"
-    )
     
     # Output arguments
     parser.add_argument(
@@ -885,41 +1031,60 @@ def main():
         help="Confidence threshold for filtering (default: 0.5 for most models, 0.05 for DelineateAnything)"
     )
     
-    # Model-specific options
-    parser.add_argument(
+    # Organize arguments by model type for clarity
+    sam_group = parser.add_argument_group('SAM-specific options', 'Arguments only used when --model sam')
+    sam_group.add_argument(
         "--sam_model_type", 
         type=str, 
         default="vit_h",
-        help="Model type for SAM (vit_b, vit_l, vit_h). Default: vit_h for fine-tuned checkpoints."
+        help="SAM model type (vit_b, vit_l, vit_h). Default: vit_h for fine-tuned checkpoints."
+    )
+    sam_group.add_argument(
+        "--sam_in_chans",
+        type=int,
+        default=8,
+        help="Input channels for SAM (3 for RGB, 8 for stacked Sentinel-2). Default: 8"
     )
     
-    # DelineateAnything-specific options
-    parser.add_argument(
+    decode_group = parser.add_argument_group('DECODE-specific options', 'Arguments only used when --model decode')
+    # config_file is already defined above, but note it's mainly for DECODE
+    
+    ftw_group = parser.add_argument_group('FTW-specific options', 'Arguments only used when --model ftw')
+    ftw_group.add_argument(
+        "--temporal_options", 
+        type=str, 
+        default="stacked",
+        choices=["stacked", "window_a", "window_b"],
+        help="Temporal processing option for FTW (default: stacked)"
+    )
+    
+    delany_group = parser.add_argument_group('DelineateAnything-specific options', 'Arguments only used when --model delineate_anything or --model da')
+    delany_group.add_argument(
         "--delany_model_variant",
         type=str,
         default=None,
         choices=["DelineateAnything", "DelineateAnything-S"],
         help="DelineateAnything model variant (auto-detected from weights path if not specified)"
     )
-    parser.add_argument(
+    delany_group.add_argument(
         "--patch_size",
         type=int,
         default=256,
         help="Patch size for DelineateAnything (default: 256)"
     )
-    parser.add_argument(
+    delany_group.add_argument(
         "--resize_factor",
         type=int,
         default=2,
         help="Resize factor for DelineateAnything (default: 2)"
     )
-    parser.add_argument(
+    delany_group.add_argument(
         "--max_detections",
         type=int,
         default=100,
         help="Max detections per image for DelineateAnything (default: 100)"
     )
-    parser.add_argument(
+    delany_group.add_argument(
         "--iou_threshold",
         type=float,
         default=0.3,
@@ -946,31 +1111,37 @@ def main():
         suffix = "all" if len(args.countries) > 10 else "-".join(args.countries)
         args.output_name = f"{args.model}_detections_{suffix}.pkl"
     
-    # Prepare arguments for model runner
+    # Prepare base arguments (common to all models)
     runner_args = {
         "data_dir": args.data_dir,
         "output_dir": args.output_dir,
         "countries": args.countries,
         "split": args.split,
         "batch_size": args.batch_size,
-        "temporal_options": args.temporal_options,
-        "sam_model_type": args.sam_model_type,
         "save_logits": args.save_logits,
         "min_area": args.min_area,
         "confidence_threshold": args.confidence_threshold,
-        # DelineateAnything-specific args
-        "delany_model_variant": args.model_variant,
-        "patch_size": args.patch_size,
-        "resize_factor": args.resize_factor,
-        "max_detections": args.max_detections,
-        "iou_threshold": args.iou_threshold,
     }
     
-    # Add model-specific arguments
+    # Add model weights and config (if provided)
     if args.model_weights:
         runner_args["model_weights"] = args.model_weights
     if args.config_file:
         runner_args["config_file"] = args.config_file
+    
+    # Add model-specific arguments based on selected model
+    if args.model in ["ftw", "ftw-cli"]:
+        runner_args["temporal_options"] = args.temporal_options
+    elif args.model == "sam":
+        runner_args["sam_model_type"] = args.sam_model_type
+        runner_args["in_chans"] = getattr(args, "sam_in_chans", 8)  # Default to 8 for stacked Sentinel-2
+    elif args.model in ["delineate_anything", "da"]:
+        runner_args["delany_model_variant"] = args.delany_model_variant
+        runner_args["patch_size"] = args.patch_size
+        runner_args["resize_factor"] = args.resize_factor
+        runner_args["max_detections"] = args.max_detections
+        runner_args["iou_threshold"] = args.iou_threshold
+    # DECODE uses config_file (already added above)
     
     # DelineateAnything can use built-in registry if no weights provided
     if not args.model_weights and args.model not in ["delineate_anything", "da"]:
@@ -991,9 +1162,29 @@ def main():
         print(f"Starting inference with {args.model} model...")
         start_time = time.time()
         
-        # Run inference
-        runner = MODEL_RUNNERS[args.model]
-        result = runner(**runner_args)
+        # Try registry-based approach if requested and available
+        if args.use_registry and REGISTRY_AVAILABLE and args.model in available_models():
+            print(f"Using registry-based segmenter for {args.model}")
+            result = run_registry_inference(
+                model_name=args.model,
+                **runner_args
+            )
+        else:
+            # ⚠️  DEPRECATED: Legacy MODEL_RUNNERS approach
+            # This path will be removed once registry-based inference is fully verified.
+            # Use `--use_registry` flag to use the new registry-based path.
+            import warnings
+            warnings.warn(
+                f"Using deprecated legacy inference path for {args.model}. "
+                "Use --use_registry flag to use the new registry-based segmenters. "
+                "Legacy path will be removed in a future version.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            runner = MODEL_RUNNERS.get(args.model)
+            if runner is None:
+                raise ValueError(f"Model {args.model} not found in MODEL_RUNNERS. Available: {list(MODEL_RUNNERS.keys())}")
+            result = runner(**runner_args)
         
         # Saving logic
         if args.model == "sam" and isinstance(result, dict):

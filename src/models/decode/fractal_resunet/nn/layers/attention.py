@@ -29,7 +29,6 @@ class RelFTAttention2D(nn.Module):
         self.metric_channel = FTanimoto(depth=ftdepth, axis=[2, 3])
         self.metric_space = FTanimoto(depth=ftdepth, axis=1)
          
-        # Handle normalization
         if norm == 'BatchNorm':
             self.norm = nn.BatchNorm2d(nkeys)
         elif norm == 'InstanceNorm':
@@ -42,18 +41,18 @@ class RelFTAttention2D(nn.Module):
             raise NotImplementedError(f"Normalization {norm} not implemented")
             
     def forward(self, input1, input2, input3):
-        # These should work with ReLU as well 
+        
         q = torch.sigmoid(self.query(input1))
-        k = torch.sigmoid(self.key(input2))  # B,C,H,W 
-        v = torch.sigmoid(self.value(input3))  # B,C,H,W
+        k = torch.sigmoid(self.key(input2))  
+        v = torch.sigmoid(self.value(input3)) 
 
-        att_spat = self.metric_space(q, k)  # B,1,H,W 
-        v_spat = att_spat * v  # emphasize spatial features
+        att_spat = self.metric_space(q, k)  
+        v_spat = att_spat * v  
 
-        att_chan = self.metric_channel(q, k)  # B,C,1,1
-        v_chan = att_chan * v  # emphasize spatial features
+        att_chan = self.metric_channel(q, k)  
+        v_chan = att_chan * v  
 
-        v_cspat = 0.5 * (v_chan + v_spat)  # emphasize spatial features
+        v_cspat = 0.5 * (v_chan + v_spat) 
         v_cspat = self.norm(v_cspat)
 
         return v_cspat

@@ -38,9 +38,9 @@ class PSP_Pooling(nn.Module):
         """
         Returns a list of half split arrays. Useful for HalfPooling 
         """
-        b = torch.split(a, a.shape[2] // 2, dim=2)  # Split First dimension 
-        c1 = torch.split(b[0], b[0].shape[3] // 2, dim=3)  # Split 2nd dimension
-        c2 = torch.split(b[1], b[1].shape[3] // 2, dim=3)  # Split 2nd dimension
+        b = torch.split(a, a.shape[2] // 2, dim=2) 
+        c1 = torch.split(b[0], b[0].shape[3] // 2, dim=3)
+        c2 = torch.split(b[1], b[1].shape[3] // 2, dim=3)
     
         d11 = c1[0]
         d12 = c1[1]
@@ -81,15 +81,9 @@ class PSP_Pooling(nn.Module):
             return self.QuarterStitch([self.SplitPooling(d, depth - 1) for d in D])
 
     def forward(self, input):
-        # print(f"PSP input shape: {input.shape}")
         p = [input]
-        # 1st:: Global Max Pooling . 
         p.append(self.convs[0](torch.ones_like(input) * F.adaptive_avg_pool2d(input, (1, 1))))
         p.extend([self.convs[d](self.SplitPooling(input, d)) for d in range(1, self.depth)])
-        
-        # print(f"PSP concatenated shapes: {[t.shape for t in p]}")
         out = torch.cat(p, dim=1)
-        # print(f"PSP concatenated output shape: {out.shape}")
         out = self.conv_norm_final(out)
-        # print(f"PSP final output shape: {out.shape}")
         return out

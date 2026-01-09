@@ -40,7 +40,6 @@ class FracTAL_ResUNet_features(nn.Module):
             in_channels=in_channels if in_channels is not None else nfilters_init
         )
         
-        # List of convolutions and pooling operators 
         self.convs_dn = nn.ModuleList()
         self.pools = nn.ModuleList()
 
@@ -66,7 +65,6 @@ class FracTAL_ResUNet_features(nn.Module):
             if idx < depth - 1:
                 self.pools.append(DownSample(nfilters, norm_type=norm_type, norm_groups=norm_groups))
         
-        # Middle pooling operator 
         self.middle = PSP_Pooling(nfilters, depth=psp_depth, norm_type=norm_type, norm_groups=norm_groups)
                                
         self.convs_up = nn.ModuleList()
@@ -109,10 +107,9 @@ class FracTAL_ResUNet_features(nn.Module):
     def forward(self, input):
         conv1_first = self.conv_first(input)
  
-        # ******** Going down ***************
+        # Going down 
         fusions = []
 
-        # Workaround for potential PyTorch issues
         pools = conv1_first.clone()
 
         for idx in range(self.depth):
@@ -121,19 +118,15 @@ class FracTAL_ResUNet_features(nn.Module):
                 conv1 = unit(conv1)
                 
             if idx < self.depth - 1:
-                # Evaluate fusions 
                 conv1 = conv1.clone()
                 fusions.append(conv1)
-                # Evaluate pools 
                 pools = self.pools[idx](conv1)
 
-        # Middle psppooling
         middle = self.middle(conv1)
-        # Activation of middle layer
         middle = F.relu(middle)
         fusions.append(middle) 
 
-        # ******* Coming up ****************
+        # Coming up
         convs_up = middle
         for idx in range(self.depth - 1):
             convs_up = self.UpCombs[idx](convs_up, fusions[-idx - 2])

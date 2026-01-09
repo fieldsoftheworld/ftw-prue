@@ -15,8 +15,6 @@ class mtsk_loss:
         pred_bound = prediction[1]
         pred_dists = prediction[2]
         
-        # In our implementation of the labels, we stack together the [segmentation, boundary, distance] labels, 
-        # along the channel axis. 
         label_segm = label[:, :self.skip, :, :]
         label_bound = label[:, self.skip:2*self.skip, :, :]
         label_dists = label[:, 2*self.skip:, :, :]

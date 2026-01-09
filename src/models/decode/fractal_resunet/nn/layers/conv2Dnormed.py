@@ -11,7 +11,6 @@ class Conv2DNormed(nn.Module):
                  norm_groups=None, in_channels=None, out_channels=None, **kwargs):
         super().__init__()
         
-        # Allow separate input and output channels, defaulting to same if not specified
         if in_channels is None:
             in_channels = channels
         if out_channels is None:
@@ -28,7 +27,6 @@ class Conv2DNormed(nn.Module):
             bias=bias
         )
         
-        # Handle normalization
         if norm_type == 'BatchNorm':
             self.norm = nn.BatchNorm2d(out_channels)
         elif norm_type == 'InstanceNorm':

@@ -11,7 +11,6 @@ class DownSample(nn.Module):
     def __init__(self, nfilters, factor=2, norm_type='BatchNorm', norm_groups=None, **kwargs): 
         super().__init__()
         
-        # Double the size of filters, since you downscale by 2. 
         self.factor = factor 
         self.nfilters = nfilters * self.factor
 

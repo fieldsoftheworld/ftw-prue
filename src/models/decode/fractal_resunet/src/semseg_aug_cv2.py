@@ -9,7 +9,6 @@ class ParamsRange(dict):
     """Parameter ranges for data augmentation"""
     
     def __init__(self):
-        # Good default values for 256x256 images 
         self['center_range'] = [0, 256]
         self['rot_range'] = [-85.0, 85.0]
         self['zoom_range'] = [0.75, 1.25]
@@ -26,22 +25,18 @@ class SemSegAugmentor_CV:
     """
     
     def __init__(self, params_range, prob=1.0, Nrot=5, norm=None, one_hot=True):
-        self.norm = norm  # This is a necessary hack to apply brightness normalization 
+        self.norm = norm 
         self.one_hot = one_hot 
         self.range = params_range
         self.prob = prob
         assert self.prob <= 1, f"prob must be in range [0,1], you gave prob::{prob}"
     
-        # define a proportion of operations? 
         self.operations = [self.reflect_x, self.reflect_y, self.reflect_xy, 
                           self.random_brightness, self.random_shadow]
         self.operations += [self.rand_shift_rot_zoom] * Nrot
         self.iterator = itertools.cycle(self.operations)
          
     def _shift_rot_zoom(self, img, mask, center, angle, scale):
-        """
-        OpenCV random scale+rotation 
-        """
         imgT = img.transpose([1, 2, 0])
         if self.one_hot:
             maskT = mask.transpose([1, 2, 0])
@@ -50,7 +45,6 @@ class SemSegAugmentor_CV:
         
         cols, rows = imgT.shape[:-1]
         
-        # Produces affine rotation matrix, with center, for angle, and optional zoom in/out scale
         tRotMat = cv2.getRotationMatrix2D(center, angle, scale)
     
         img_trans = cv2.warpAffine(
@@ -73,25 +67,25 @@ class SemSegAugmentor_CV:
     def reflect_x(self, img, mask):
         img_z = img[:, ::-1, :]
         if self.one_hot:
-            mask_z = mask[:, ::-1, :]  # 1hot representation
+            mask_z = mask[:, ::-1, :]  
         else:
-            mask_z = mask[::-1, :]  # standard (int's representation)
+            mask_z = mask[::-1, :]  
         return img_z, mask_z 
         
     def reflect_y(self, img, mask):
         img_z = img[:, :, ::-1]
         if self.one_hot:
-            mask_z = mask[:, :, ::-1]  # 1hot representation
+            mask_z = mask[:, :, ::-1]  
         else:
-            mask_z = mask[:, ::-1]  # standard (int's representation)
+            mask_z = mask[:, ::-1] 
         return img_z, mask_z 
         
     def reflect_xy(self, img, mask):
         img_z = img[:, ::-1, ::-1]
         if self.one_hot:
-            mask_z = mask[:, ::-1, ::-1]  # 1hot representation
+            mask_z = mask[:, ::-1, ::-1] 
         else:
-            mask_z = mask[::-1, ::-1]  # standard (int's representation)
+            mask_z = mask[::-1, ::-1] 
         return img_z, mask_z 
     
     def rand_shift_rot_zoom(self, img, mask):
@@ -100,7 +94,7 @@ class SemSegAugmentor_CV:
             high=self.range['center_range'][1],
             size=2
         )
-        # This is in radians
+        
         angle = np.random.uniform(
             low=self.range['rot_range'][0],
             high=self.range['rot_range'][1]
@@ -113,20 +107,17 @@ class SemSegAugmentor_CV:
         return self._shift_rot_zoom(img, mask, center, angle, scale)
     
     def random_brightness(self, img, mask):
-        # Add random brightness adjustment
         brightness_factor = np.random.uniform(0.8, 1.2)
         img_bright = img * brightness_factor
         img_bright = np.clip(img_bright, 0, 255)
         return img_bright, mask
     
     def random_shadow(self, img, mask):
-        # Add random shadow effect
         shadow_intensity = np.random.uniform(0.3, 0.7)
         img_shadow = img * shadow_intensity
         return img_shadow, mask
     
     def augment(self, img, mask):
-        """Apply random augmentation"""
         if np.random.random() < self.prob:
             op = next(self.iterator)
             return op(img, mask)

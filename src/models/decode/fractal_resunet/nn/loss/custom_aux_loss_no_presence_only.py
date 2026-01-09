@@ -35,9 +35,9 @@ class FtnmtLoss(nn.Module):
         """
         Base fractal Tanimoto coefficient (averaged over depths).
         """
-        tpl = self.inner_prod(preds, labels)  # intersection
-        tpp = self.inner_prod(preds, preds)   # p^2
-        tll = self.inner_prod(labels, labels) # l^2
+        tpl = self.inner_prod(preds, labels)  
+        tpp = self.inner_prod(preds, preds)   
+        tll = self.inner_prod(labels, labels) 
 
         num = tpl + self.smooth
         denum = 0.0
@@ -49,7 +49,7 @@ class FtnmtLoss(nn.Module):
             denum += 1.0 / denom_d
 
         result = num * denum * self.scale
-        return torch.mean(result)  # mean over batch
+        return torch.mean(result) 
 
     def forward(self, preds, labels):
         """
@@ -60,7 +60,7 @@ class FtnmtLoss(nn.Module):
         l2 = self.tnmt_base(1.0 - preds, 1.0 - labels)
 
         sim = 0.5 * (l1 + l2)
-        return 1.0 - sim  # loss = 1 - similarity
+        return 1.0 - sim
 
 
 class MultiTaskLoss(nn.Module):
@@ -69,12 +69,9 @@ class MultiTaskLoss(nn.Module):
     """
     def __init__(self, depth=5, n_classes=2):
         super().__init__()
-        # Loss for segmentation and boundary tasks (classification/similarity)
+
         self.ftnmt_loss = FtnmtLoss(depth=depth, dims=(1, 2, 3))
-        
-        # Loss for the distance mask task (regression)
-        self.distance_loss = nn.MSELoss()  # Or nn.L1Loss() for MAE
-        
+        self.distance_loss = nn.MSELoss() 
         self.n_classes = n_classes
 
     def forward(self, predictions, labels):
@@ -94,6 +91,7 @@ class MultiTaskLoss(nn.Module):
         # Task 2: Boundary loss (using Ftnmt)
         loss_bound = self.ftnmt_loss(pred_bound, label_bound)
 
+        # Task 3: Distance loss (MSE)
         loss_dist = self.distance_loss(pred_dist, label_dist)
 
         total_loss = (loss_segm + loss_bound + loss_dist) / 3.0

@@ -15,9 +15,9 @@ class FtnmtLoss(nn.Module):
         return torch.sum(prob * label * valid_mask, dim=self.dims)
 
     def tnmt_base(self, preds, labels, valid_mask):
-        tpl = self.inner_prod(preds, labels, valid_mask)   # intersection
-        tpp = self.inner_prod(preds, preds, valid_mask)    # p^2
-        tll = self.inner_prod(labels, labels, valid_mask)  # l^2
+        tpl = self.inner_prod(preds, labels, valid_mask)   
+        tpp = self.inner_prod(preds, preds, valid_mask)    
+        tll = self.inner_prod(labels, labels, valid_mask)  
 
         num = tpl + self.smooth
         denum = 0.0
@@ -56,17 +56,14 @@ class MultiTaskLoss(nn.Module):
         pred_segm, pred_bound, pred_dist = predictions
         label_segm, label_bound, label_dist = labels
 
-        # Sanity check for distance regression
         assert pred_dist.shape[1] == 1, f"Expected 1 channel for distance, got {pred_dist.shape[1]}"
 
-        # Losses
         loss_segm = self.ftnmt_loss(pred_segm, label_segm, valid_mask)
         loss_bound = self.ftnmt_loss(pred_bound, label_bound, valid_mask)
 
         loss_dist_raw = self.distance_loss(pred_dist, label_dist)
         loss_dist = torch.sum(loss_dist_raw * valid_mask) / (torch.sum(valid_mask) + 1e-5)
 
-        # Weighted aggregation
         total_loss = (
             self.seg_weight * loss_segm +
             self.bound_weight * loss_bound +

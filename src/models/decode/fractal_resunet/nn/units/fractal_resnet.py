@@ -19,7 +19,6 @@ class ResNet_v2_block(nn.Module):
         self.kernel_size = kernel_size
         self.dilation_rate = dilation_rate
 
-        # Ensures padding = 'SAME' for ODD kernel selection 
         p0 = self.dilation_rate[0] * (self.kernel_size[0] - 1) // 2 
         p1 = self.dilation_rate[1] * (self.kernel_size[1] - 1) // 2 
         p = (p0, p1)

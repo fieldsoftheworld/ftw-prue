@@ -33,4 +33,3 @@ def new_set_image(
     #print(input_image_torch.shape, image.shape[-2:])
     self.set_torch_image(input_image_torch, image.shape[-2:])
 
-

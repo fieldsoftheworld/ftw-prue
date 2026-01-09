@@ -1,5 +1,5 @@
 data:
-        data_dir: '/path/to/ftw/data'
+        data_dir: '/nfs/hpc/share/fangzha/data/ftw'
         train_countries: ["austria", "corsica", "finland", "kenya", "portugal", "south_africa", "belgium", "croatia", "france", "lithuania", "rwanda", "spain", "brazil", "denmark", "germany", "luxembourg", "slovakia", "sweden", "cambodia", "estonia", "india", "netherlands", "slovenia", "vietnam"]
         val_countries: ["austria", "corsica", "finland", "kenya", "portugal", "south_africa", "belgium", "croatia", "france", "lithuania", "rwanda", "spain", "brazil", "denmark", "germany", "luxembourg", "slovakia", "sweden", "cambodia", "estonia", "india", "netherlands", "slovenia", "vietnam"]
         test_countries: ['slovenia', 'kenya'] # ["austria", "corsica", "finland", "kenya", "portugal", "south_africa", "belgium", "croatia", "france", "lithuania", "rwanda", "spain", "brazil", "denmark", "germany", "luxembourg", "slovakia", "sweden", "cambodia", "estonia", "india", "netherlands", "slovenia", "vietnam"]
@@ -11,7 +11,7 @@ data:
         val_worker_num: 8
         test_worker_num: 1
 sam_model:
-        model_ckpt: "/path/to/weights/sam_final_allinp_re_ed_e2e_30.pkl"
+        model_ckpt: "/nfs/hpc/share/fangzha/weights/sam_final_allinp_re_ed_e2e_30.pkl"
         in_chans: 8
         adapt_inp: True
         change_chan_num: False

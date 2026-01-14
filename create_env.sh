@@ -15,14 +15,14 @@ Usage: create_env.sh [--env-name <name>] [--env-path </custom/path>] \
                      [--cuda-home </usr/local/cuda>] [--cuda-arch-list "8.0"]
 
 Options:
-  --env-name         Name to use under the default conda prefix (default: ag-seg)
+  --env-name         Name to use under the default conda prefix (default: prue-m2f)
   --env-path         Fully-qualified path for the environment (overrides --env-name)
   --cuda-home        Path to CUDA toolkit (defaults to existing CUDA_HOME or nvcc location)
   --cuda-arch-list   Value for TORCH_CUDA_ARCH_LIST (e.g., "7.0" for V100, "9.0" for H100)
 
 Examples:
   ./create_env.sh --cuda-arch-list "8.0"
-  ./create_env.sh --env-path $HOME/miniconda3/envs/ag-seg --cuda-home /usr/local/cuda-12.1
+  ./create_env.sh --env-path $HOME/miniconda3/envs/prue-m2f --cuda-home /usr/local/cuda-12.1
 EOF
 }
 

@@ -4,7 +4,7 @@
 set -e
 
 # Default configuration
-ENV_NAME="ag-seg"
+ENV_NAME="prue-m2f"
 ENV_PATH_OVERRIDE=""
 CUDA_HOME_OVERRIDE=""
 CUDA_ARCH_LIST_OVERRIDE=""

@@ -19,9 +19,6 @@ I recommend creating a `local/` folder under your configs that contain hardcoded
 ```
 _BASE_: ../ftw/panoptic-segmentation/swin/maskformer2_swin_small_bs16_50ep.yaml
 
-DATASETS:
-  ORIGINAL_ROOT: "/path_to_data_folder/data/ftw"
-
 MODEL:
   # Point to your fine-tuning checkpoint or pre-trained Swin weights
   WEIGHTS: "/path_to_weights_folder/model_final_a407fd.pkl"

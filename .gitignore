@@ -212,3 +212,4 @@ gfm_ckpts/
 results/
 scratch/
 configs/local/
+tests/

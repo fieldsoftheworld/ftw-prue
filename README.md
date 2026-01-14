@@ -3,7 +3,7 @@ by: Zhanpei Fang
 last updated: 13 Jan 2026
 
 ## Installation
-All setup can be completed through running the `create_env.sh` script. It works for my system but I haven't tested it for other systems so far. This installs detectron2 and compiles the CUDA kernel for MSDeformAttn. For further guidance see the [official documentation for installation](https://github.com/facebookresearch/Mask2Former/blob/main/INSTALL.md). 
+All setup can be completed through running the `create_env.sh` script. It works for my system but I haven't tested it for other systems so far. This installs detectron2 and compiles the CUDA kernel for MSDeformAttn. For further guidance see the [official documentation for installation](https://github.com/facebookresearch/Mask2Former/blob/main/INSTALL.md). I tried running this from scratch and had some issues with GDAL being installed but not added to the PYTHONPATH, so you might need to check this is configured as well.
 
 ## Dataset conversion
 Run the `tools/ftw_to_coco.py` script to convert the FTW dataset to the COCO instance and panoptic formats required for using with detectron2. 

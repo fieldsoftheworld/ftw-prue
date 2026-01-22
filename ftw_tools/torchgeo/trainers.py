@@ -470,8 +470,8 @@ class CustomSemanticSegmentationTask(BaseTask):
             
             num_classes = self.hparams["num_classes"]
             presence_only = self.hparams.get("presence_only", False)
-            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only)
-            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only)
+            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only=presence_only)
+            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only)
             
             labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1)]
             loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
@@ -531,8 +531,8 @@ class CustomSemanticSegmentationTask(BaseTask):
             
             num_classes = self.hparams["num_classes"]
             presence_only = self.hparams.get("presence_only", False)
-            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only)
-            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only) if y_bound is not None else (None, None)
+            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only=presence_only)
+            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only) if y_bound is not None else (None, None)
             
             labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1) if y_dist is not None else None]
             loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
@@ -623,8 +623,8 @@ class CustomSemanticSegmentationTask(BaseTask):
             
             num_classes = self.hparams["num_classes"]
             presence_only = self.hparams.get("presence_only", False)
-            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only)
-            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only) if y_bound is not None else (None, None)
+            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only=presence_only)
+            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only) if y_bound is not None else (None, None)
             
             labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1) if y_dist is not None else None]
             loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)

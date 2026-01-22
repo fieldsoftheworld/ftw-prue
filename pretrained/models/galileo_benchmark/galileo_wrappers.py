@@ -11,20 +11,43 @@ import torch.nn as nn
 import numpy as np
 from pathlib import Path
 import sys
+import importlib.util
 
-galileo_path = Path(__file__).parent / "galileo"
-if str(galileo_path) not in sys.path:
-    sys.path.insert(0, str(galileo_path))
+galileo_root = Path(__file__).resolve().parent / "galileo"
+sys.path.insert(0, str(galileo_root))
 
-from src.eval.baseline_models import (
-    CROMAWrapper,
-    DeCurWrapper,
-    DOFAWrapper,
-    PrithviWrapper,
-    SatlasWrapper,
-    SoftConWrapper,
-)
-from src.galileo import GalileoWrapper
+try:
+    from src.galileo import GalileoWrapper
+except Exception:
+    GalileoWrapper = None
+    
+def load_module_direct(module_name, file_path):
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+croma_module = load_module_direct("croma", galileo_root / "src/eval/baseline_models/croma.py")
+CROMAWrapper = croma_module.CROMAWrapper if croma_module else None
+
+decur_module = load_module_direct("decur", galileo_root / "src/eval/baseline_models/decur.py")
+DeCurWrapper = decur_module.DeCurWrapper if decur_module else None
+
+dofa_module = load_module_direct("dofa", galileo_root / "src/eval/baseline_models/dofa.py")
+DOFAWrapper = dofa_module.DOFAWrapper if dofa_module else None
+
+prithvi_module = load_module_direct("prithvi", galileo_root / "src/eval/baseline_models/prithvi.py")
+PrithviWrapper = prithvi_module.PrithviWrapper if prithvi_module else None
+
+satlas_module = load_module_direct("satlas", galileo_root / "src/eval/baseline_models/satlas.py")
+SatlasWrapper = satlas_module.SatlasWrapper if satlas_module else None
+
+softcon_module = load_module_direct("softcon", galileo_root / "src/eval/baseline_models/softcon.py")
+SoftConWrapper = softcon_module.SoftConWrapper if softcon_module else None
 
 S2_BAND_NAMES = [
     "B01", "B02", "B03", "B04", "B05", "B06", "B07",

@@ -428,6 +428,10 @@ class FTW(NonGeoDataset):
                 with rasterio.open(img_filenames["window_b"]) as f:
                     img_b_raw = f.read()[:3].astype(np.float32)  # [C, H, W], int16 -> float32
                 
+                # Load mask
+                with rasterio.open(img_filenames["mask"]) as f:
+                    mask = f.read(1)
+                
                 # Normalize by 3000 (FTW standard normalization for int16 data)
                 FTW_NORM_CONST = 3000.0
                 img_a_np = (img_a_raw / FTW_NORM_CONST).transpose(1, 2, 0)  # [H, W, C], now [0, 1]

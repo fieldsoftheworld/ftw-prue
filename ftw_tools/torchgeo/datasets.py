@@ -418,61 +418,7 @@ class FTW(NonGeoDataset):
         if "images" in self.input_type:
             img_filenames = self.img_filenames[index]
             
-            # Lists to collect the components
-            images = []
-            time_vectors = [] 
-            metadata_dict = None
-
-            current_gsd = self.gsd
-            current_waves = self.waves
-            
-            # --- 1. Determine and Load Windows ---
-            windows_to_load = []
-            if self.temporal_options in ("stacked", "median", "windowB", "rgb", "sam2"):
-                windows_to_load.append("window_b")
-            if self.temporal_options in ("stacked", "median", "windowA", "rgb", "sam2"):
-                windows_to_load.append("window_a")
-            if self.temporal_options == "random_window":
-                windows_to_load.append("window_a" if random.random() < 0.5 else "window_b")
-            
-            # Process the determined windows
-            for window_key in windows_to_load:
-                # Load the data dictionary
-                if self.preprocessing == "clay":
-                    data_dict = prepare_clay_sample(
-                        image_path=img_filenames[window_key], 
-                        preprocess=self.preprocessor,
-                        gsd=current_gsd,                   
-                        waves=current_waves,
-                        data_root=self.root,               
-                    )
-                else:
-                    data_dict = prepare_general_sample(
-                        image_path=img_filenames[window_key], 
-                        preprocess=self.preprocessor,
-                    )
-        
-                # Always collect the image tensor
-                images.append(data_dict['image'])
-                
-                # Conditionally collect time vector and static metadata
-                if self.with_metadata:
-                    time_vectors.append(data_dict["time"])
-                    if metadata_dict is None:
-                        # Store the first dictionary for static metadata
-                        metadata_dict = data_dict 
-
-            # Handle swapping order
-            if self.swap_order and len(images) == 2:
-                images = [images[1], images[0]]
-                if self.with_metadata:
-                    time_vectors = [time_vectors[1], time_vectors[0]]
-
-            # --- 2. Load Mask for SAM-2 or regular processing ---
-            with rasterio.open(img_filenames["mask"]) as f:
-                mask = f.read(1)
-            
-            # --- 3. SAM-2 Special Handling ---
+            # --- SAM-2 Special Handling (check early to bypass normal loading) ---
             if self.sam2_mode:
                 # SAM-2 needs raw int16 data, normalize by 3000
                 # FTW images are 256x256, so no resizing needed
@@ -531,15 +477,70 @@ class FTW(NonGeoDataset):
                 sample["mask"] = sample["field_mask"].long()
                 
                 return sample
+            
+            # --- Normal image loading path (for non-SAM-2 modes) ---
+            # Lists to collect the components
+            images = []
+            time_vectors = [] 
+            metadata_dict = None
 
-            # --- 4. Image Combination Logic (for non-SAM-2 modes) ---
+            current_gsd = self.gsd
+            current_waves = self.waves
+            
+            # --- 1. Determine and Load Windows ---
+            windows_to_load = []
+            if self.temporal_options in ("stacked", "median", "windowB", "rgb"):
+                windows_to_load.append("window_b")
+            if self.temporal_options in ("stacked", "median", "windowA", "rgb"):
+                windows_to_load.append("window_a")
+            if self.temporal_options == "random_window":
+                windows_to_load.append("window_a" if random.random() < 0.5 else "window_b")
+            
+            # Process the determined windows
+            for window_key in windows_to_load:
+                # Load the data dictionary
+                if self.preprocessing == "clay":
+                    data_dict = prepare_clay_sample(
+                        image_path=img_filenames[window_key], 
+                        preprocess=self.preprocessor,
+                        gsd=current_gsd,                   
+                        waves=current_waves,
+                        data_root=self.root,               
+                    )
+                else:
+                    data_dict = prepare_general_sample(
+                        image_path=img_filenames[window_key], 
+                        preprocess=self.preprocessor,
+                    )
+        
+                # Always collect the image tensor
+                images.append(data_dict['image'])
+                
+                # Conditionally collect time vector and static metadata
+                if self.with_metadata:
+                    time_vectors.append(data_dict["time"])
+                    if metadata_dict is None:
+                        # Store the first dictionary for static metadata
+                        metadata_dict = data_dict 
+
+            # Handle swapping order
+            if self.swap_order and len(images) == 2:
+                images = [images[1], images[0]]
+                if self.with_metadata:
+                    time_vectors = [time_vectors[1], time_vectors[0]]
+
+            # --- 2. Load Mask for regular processing ---
+            with rasterio.open(img_filenames["mask"]) as f:
+                mask = f.read(1)
+
+            # --- 3. Image Combination Logic (for non-SAM-2 modes) ---
             if self.temporal_options == "median":
                 images_np = np.stack([img.numpy() for img in images], axis=0).astype(np.float32)
                 image = torch.from_numpy(np.median(images_np, axis=0)).float()
             else:
                 image = torch.cat(images, dim=0).float()
                     
-            # --- 5. Finalize Sample Dictionary ---
+            # --- 4. Finalize Sample Dictionary ---
             sample["image"] = image
             
             if self.with_metadata:
@@ -550,7 +551,7 @@ class FTW(NonGeoDataset):
                 sample["waves"] = metadata_dict["waves"]
                 sample["platform"] = metadata_dict["platform"]
 
-            # --- 6. Load Mask and Apply Transforms (for non-SAM-2 modes) ---
+            # --- 5. Load Mask and Apply Transforms (for non-SAM-2 modes) ---
             sample["mask"] = torch.from_numpy(mask).long()
             
             if self.compute_boundary_distance:

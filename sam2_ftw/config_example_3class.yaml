@@ -1,10 +1,8 @@
 trainer:
   max_epochs: 50
   log_every_n_steps: 10
-  accelerator: gpu
+  accelerator: cpu
   default_root_dir: logs/sam2-ftw-3-class
-  devices:
-    - 0
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:

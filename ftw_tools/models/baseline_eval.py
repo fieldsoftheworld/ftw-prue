@@ -4,6 +4,7 @@ import time
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from lightning.pytorch.cli import LightningCLI
 from torch.utils.data import DataLoader
 from torchgeo.trainers import BaseTask
@@ -306,29 +307,125 @@ def test(
     num_classes = 3 if model_predicts_3_classes else 2
 
     for batch in tqdm(dl):
-        x = prepare_input(batch, input_type, device)
         masks = batch["mask"].to(device)
 
         with torch.inference_mode():
-            if model_type == "gfm":
-                feats = encoder(x)
-                logits = decoder(feats)
-            elif model_type == "pretrained":
-                logits = decoder(x)
+            # SAM-2 special handling
+            if saved_model_type == "sam2":
+                # SAM-2 needs window_a, window_b, points, point_labels
+                window_a = batch["window_a"].to(device) / 255.0  # [B, 3, H, W]
+                window_b = batch["window_b"].to(device) / 255.0  # [B, 3, H, W]
+                field_mask = batch["field_mask"].to(device)  # [B, H, W], binary
+                points = batch.get("points", None)  # [B, N, 2] or None
+                point_labels = batch.get("point_labels", None)  # [B, N] or None
+                
+                # Skip if no points (empty masks)
+                if points is None or points.shape[1] == 0:
+                    # Use dummy predictions (all background)
+                    logits = torch.zeros((field_mask.shape[0], 2, *field_mask.shape[1:]), device=device)
+                else:
+                    # Use trainer's forward logic
+                    model = decoder  # decoder is the SAM2VideoPredictor
+                    
+                    # Resize images to model.image_size
+                    target_size = model.image_size
+                    orig_H, orig_W = window_b.shape[-2:]
+                    
+                    window_a_resized = F.interpolate(
+                        window_a, size=(target_size, target_size), mode="bilinear", align_corners=False
+                    )
+                    window_b_resized = F.interpolate(
+                        window_b, size=(target_size, target_size), mode="bilinear", align_corners=False
+                    )
+                    
+                    # Temporal memory (no grad)
+                    with torch.no_grad():
+                        _ = model.forward_image(window_a_resized)
+                    
+                    # Forward on window_b
+                    feats = model.forward_image(window_b_resized)
+                    
+                    # Normalize points
+                    points_norm = points.clone()
+                    scale_x = target_size / orig_W
+                    scale_y = target_size / orig_H
+                    points_norm[:, :, 0] *= scale_x
+                    points_norm[:, :, 1] *= scale_y
+                    points_norm[:, :, 0] /= target_size
+                    points_norm[:, :, 1] /= target_size
+                    points_norm *= model.image_size
+                    
+                    # Prepare mask prompt
+                    field_mask_resized = F.interpolate(
+                        field_mask.unsqueeze(1), size=(target_size, target_size), mode="nearest"
+                    )
+                    mask_prompt = F.interpolate(
+                        field_mask_resized, size=(model.image_size // 4, model.image_size // 4), mode="nearest"
+                    )
+                    
+                    # Encode prompts
+                    sparse, dense = model.sam_prompt_encoder(
+                        points=(points_norm, point_labels), boxes=None, masks=mask_prompt
+                    )
+                    
+                    # Get high-res features
+                    high_res_features = None
+                    if model.use_high_res_features_in_sam:
+                        high_res_features = feats["backbone_fpn"][:2]
+                    
+                    # Decode masks
+                    low_res_masks, _, _, _ = model.sam_mask_decoder(
+                        image_embeddings=feats["vision_features"],
+                        image_pe=model.sam_prompt_encoder.get_dense_pe(),
+                        sparse_prompt_embeddings=sparse,
+                        dense_prompt_embeddings=dense,
+                        multimask_output=False,
+                        repeat_image=False,
+                        high_res_features=high_res_features,
+                    )
+                    
+                    # Apply sigmoid and upsample
+                    pred = torch.sigmoid(low_res_masks[:, 0])
+                    pred = F.interpolate(
+                        pred.unsqueeze(1), size=(orig_H, orig_W), mode="bilinear", align_corners=False
+                    ).squeeze(1)
+                    
+                    # Convert binary probabilities to 2-class logits format
+                    # pred is [B, H, W] with values 0-1
+                    # Convert to logits: [B, 2, H, W]
+                    # Class 0 (background): 1 - pred
+                    # Class 1 (field): pred
+                    logits = torch.stack([1 - pred, pred], dim=1)  # [B, 2, H, W]
+                
+                # Get class predictions
+                outputs = logits.argmax(dim=1)  # [B, H, W] with values 0 or 1
+                
+                # Use binary field mask as target
+                masks = field_mask.long()  # [B, H, W] with values 0 or 1
+                
             else:
-                logits = decoder(x)
+                # Original logic for other models
+                x = prepare_input(batch, input_type, device)
+                
+                if model_type == "gfm":
+                    feats = encoder(x)
+                    logits = decoder(feats)
+                elif model_type == "pretrained":
+                    logits = decoder(x)
+                else:
+                    logits = decoder(x)
 
-            logits = logits[:, :num_classes, :, :]
-            outputs = logits.argmax(dim=1)
+                logits = logits[:, :num_classes, :, :]
+                outputs = logits.argmax(dim=1)
 
-        # 3 → 2 class projection
-        if model_predicts_3_classes:
-            mapped = torch.zeros_like(outputs)
-            mapped[outputs == 1] = 1
-            outputs = mapped
-        else:
-            if test_on_3_classes:
-                raise ValueError("Model predicts 2 classes but test_on_3_classes=True")
+                # 3 → 2 class projection
+                if model_predicts_3_classes:
+                    mapped = torch.zeros_like(outputs)
+                    mapped[outputs == 1] = 1
+                    outputs = mapped
+                else:
+                    if test_on_3_classes:
+                        raise ValueError("Model predicts 2 classes but test_on_3_classes=True")
 
         metrics.update(outputs, masks)
 

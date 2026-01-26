@@ -1,0 +1,52 @@
+trainer:
+  max_epochs: 50
+  log_every_n_steps: 10
+  accelerator: gpu
+  default_root_dir: logs/sam2-ftw-2-class
+  devices:
+    - 0
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: val_loss
+        mode: min
+        save_top_k: 1
+        save_last: true
+        filename: "{epoch}-{val_loss:.2f}"
+model:
+  class_path: ftw_tools.torchgeo.trainers.CustomSemanticSegmentationTask
+  init_args:
+    loss: "sam2"  # or "bce" - binary cross-entropy
+    model: "sam2"
+    backbone: "sam2_hiera_s"  # Not used but required
+    weights: null
+    in_channels: 3  # RGB only for SAM-2
+    num_classes: 2  # Binary classification (background, field)
+    ignore_index: 3
+    lr: 1e-4
+    patience: 50
+    model_kwargs:
+      # SAM-2 specific parameters
+      sam2_repo_path: null  # Path to sam2 repo, or null to use system path
+      model_cfg: "sam2_hiera_s.yaml"  # SAM-2 config file name
+      checkpoint_path: null  # Path to base SAM-2 checkpoint (e.g., sam2.1_hiera_small.pt)
+      # If checkpoint_path is null, you need to set it via CLI: --model.model_kwargs.checkpoint_path /path/to/checkpoint.pt
+data:
+  class_path: ftw_tools.torchgeo.datamodules.FTWDataModule
+  init_args:
+    batch_size: 4  # Smaller batch size for SAM-2 (memory intensive)
+    num_workers: 4
+    train_countries:
+      - france
+    val_countries:
+      - france
+    test_countries:
+      - france
+    temporal_options: "sam2"  # Use SAM-2 temporal mode
+    preprocessing: "none"  # No preprocessing for SAM-2 (uses raw RGB)
+    input_type: "images"
+    load_boundaries: false  # Use 2-class masks
+    sam2_max_image_size: 1024  # Not used (FTW images are 256x256, no resizing needed)
+    sam2_num_points: 1  # Number of points for training (3 for validation/test)
+    root: "data/ftw"  # Path to FTW dataset
+

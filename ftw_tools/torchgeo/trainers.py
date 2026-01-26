@@ -213,9 +213,12 @@ class CustomSemanticSegmentationTask(BaseTask):
                 bound_weight=model_kwargs.get("bound_weight", 1.0),
                 dist_weight=model_kwargs.get("dist_weight", 1.0),
             )
+        elif loss == "bce" or loss == "sam2":
+            # Binary cross-entropy for SAM-2
+            self.criterion = nn.BCELoss()
         else:
             raise ValueError(f"Loss type '{loss}' is not valid. "
-                             "Currently supports: 'ce', 'jaccard', 'focal', 'dice', 'ce+dice', 'logcoshdice', 'logcoshdice+ce', 'decode'."
+                             "Currently supports: 'ce', 'jaccard', 'focal', 'dice', 'ce+dice', 'logcoshdice', 'logcoshdice+ce', 'decode', 'bce', 'sam2'."
             )
 
 
@@ -382,10 +385,53 @@ class CustomSemanticSegmentationTask(BaseTask):
                 self.model.load_state_dict(state_dict, strict=False)
             print("[DECODE] Using FracTAL ResUNet model")
 
+        elif model == "sam2":
+            import sys
+            from pathlib import Path
+            # Add sam2 repo to path if needed
+            sam2_repo_path = model_kwargs.get("sam2_repo_path", None)
+            if sam2_repo_path and Path(sam2_repo_path).exists():
+                if str(sam2_repo_path) not in sys.path:
+                    sys.path.insert(0, str(sam2_repo_path))
+            
+            from sam2.build_sam import build_sam2_video_predictor
+            
+            model_cfg = model_kwargs.get("model_cfg", "sam2_hiera_s.yaml")
+            checkpoint_path = model_kwargs.get("checkpoint_path", None)
+            
+            # Build SAM-2 model
+            self.model = build_sam2_video_predictor(
+                model_cfg, 
+                checkpoint=None,  # Load checkpoint separately
+                device=self.device,
+                mode="train"
+            )
+            
+            # Load base checkpoint
+            if checkpoint_path and Path(checkpoint_path).exists():
+                ckpt = torch.load(checkpoint_path, map_location="cpu")
+                state = ckpt["model"] if "model" in ckpt else ckpt
+                self.model.load_state_dict(state, strict=False)
+                print(f"[SAM-2] Loaded base checkpoint from {checkpoint_path}")
+            
+            # Freeze everything except mask decoder
+            for p in self.model.image_encoder.parameters():
+                p.requires_grad = False
+            for p in self.model.sam_prompt_encoder.parameters():
+                p.requires_grad = False
+            for p in self.model.sam_mask_decoder.parameters():
+                p.requires_grad = True
+            
+            self.model.image_encoder.eval()
+            self.model.sam_prompt_encoder.eval()
+            self.model.sam_mask_decoder.train()
+            
+            print("[SAM-2] Using SAM-2 Video Predictor (mask decoder trainable)")
+
         else:
             raise ValueError(
                 f"Model type '{model}' is not valid. "
-                "Currently, only supports 'pretrained', 'unet', 'deeplabv3+', 'fcn', 'upernet', 'segformer', 'dpt', 'gfm', and 'decode'."
+                "Currently, only supports 'pretrained', 'unet', 'deeplabv3+', 'fcn', 'upernet', 'segformer', 'dpt', 'gfm', 'decode', and 'sam2'."
             )
 
         # Freeze backbone
@@ -410,6 +456,102 @@ class CustomSemanticSegmentationTask(BaseTask):
                 metric_name = f"{split}/{clean_name}/{cname}"
                 self.logger.experiment.log({metric_name: v.item(), "epoch": self.current_epoch})
 
+    def _sam2_forward_step(self, batch: Any, is_training: bool = True):
+        """SAM-2 forward step for training/validation.
+        
+        Args:
+            batch: Batch containing window_a, window_b, points, point_labels, field_mask
+            is_training: Whether this is a training step
+        
+        Returns:
+            loss: Loss tensor
+            y_hat: Prediction logits [B, H, W] (sigmoid applied)
+            y: Ground truth binary mask [B, H, W]
+        """
+        import torch.nn.functional as F
+        
+        window_a = batch["window_a"]  # [B, 3, H, W], float, 0-255 (uint8 converted to float)
+        window_b = batch["window_b"]  # [B, 3, H, W], float, 0-255 (uint8 converted to float)
+        field_mask = batch["field_mask"]  # [B, H, W], float, 0 or 1
+        points = batch.get("points", None)  # [B, N, 2] or None
+        point_labels = batch.get("point_labels", None)  # [B, N] or None
+        
+        # Normalize images to [0, 1]
+        # Images are stored as uint8 [0, 255] but converted to float tensor
+        # They were already normalized by 3000 in dataset, then scaled to [0, 255]
+        # So dividing by 255 gives us [0, 1] range (properly normalized from int16)
+        img_a = window_a / 255.0
+        img_b = window_b / 255.0
+        
+        # Skip samples without points (empty masks)
+        if points is None:
+            # Return dummy loss for empty masks
+            dummy_pred = torch.zeros_like(field_mask)
+            dummy_loss = torch.tensor(0.0, device=field_mask.device, requires_grad=True)
+            return dummy_loss, dummy_pred, field_mask
+        
+        model = self.model
+        
+        # Temporal memory (no grad in training, grad in validation for consistency)
+        with torch.set_grad_enabled(False):
+            _ = model.forward_image(img_a)
+        
+        # Forward on window_b
+        with torch.set_grad_enabled(is_training):
+            feats = model.forward_image(img_b)
+            
+            H, W = img_b.shape[-2:]
+            
+            # Normalize points to model's image_size
+            points_norm = points.clone()
+            points_norm[:, :, 0] /= W  # Normalize x
+            points_norm[:, :, 1] /= H  # Normalize y
+            points_norm *= model.image_size
+            
+            # Prepare mask prompt (downsampled GT)
+            mask_prompt = F.interpolate(
+                field_mask.unsqueeze(1),
+                size=(model.image_size // 4, model.image_size // 4),
+                mode="nearest",
+            )
+            
+            # Encode prompts
+            sparse, dense = model.sam_prompt_encoder(
+                points=(points_norm, point_labels),
+                boxes=None,
+                masks=mask_prompt,
+            )
+            
+            # Get high-res features if available
+            high_res_features = None
+            if model.use_high_res_features_in_sam:
+                high_res_features = feats["backbone_fpn"][:2]
+            
+            # Decode masks
+            low_res_masks, _, _, _ = model.sam_mask_decoder(
+                image_embeddings=feats["vision_features"],
+                image_pe=model.sam_prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse,
+                dense_prompt_embeddings=dense,
+                multimask_output=False,
+                repeat_image=False,
+                high_res_features=high_res_features,
+            )
+            
+            # Apply sigmoid and upsample
+            pred = torch.sigmoid(low_res_masks[:, 0])
+            pred = F.interpolate(
+                pred.unsqueeze(1),
+                size=field_mask.shape[-2:],
+                mode="bilinear",
+                align_corners=False
+            ).squeeze(1)
+            
+            # Compute loss
+            loss = self.criterion(pred, field_mask)
+        
+        return loss, pred, field_mask
+
 
 
     def forward(self, x):
@@ -424,6 +566,11 @@ class CustomSemanticSegmentationTask(BaseTask):
 
         if model_type == "decode":
             return self.model(x)
+
+        if model_type == "sam2":
+            # SAM-2 forward is handled in training_step/validation_step
+            # This forward method is not used for SAM-2
+            raise NotImplementedError("SAM-2 forward should be called through training_step/validation_step")
 
         return self.model(x)
 
@@ -477,6 +624,9 @@ class CustomSemanticSegmentationTask(BaseTask):
             loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
             y_hat = y_hat_tuple[0]
             y = y_seg
+        elif self.hparams["model"] == "sam2":
+            # SAM-2 training step
+            loss, y_hat, y = self._sam2_forward_step(batch, is_training=True)
         else:
             y = batch["mask"].squeeze(1)
             y_hat = self(x)
@@ -489,7 +639,14 @@ class CustomSemanticSegmentationTask(BaseTask):
             prog_bar=True,
             sync_dist=True,
         )
-        self.train_metrics.update(y_hat, y)
+        # For SAM-2, convert binary predictions to 2-class format for metrics
+        if self.hparams["model"] == "sam2":
+            # Convert binary [B, H, W] to 2-class [B, 2, H, W] for metrics
+            y_hat_2class = torch.stack([1 - y_hat, y_hat], dim=1)  # [B, 2, H, W]
+            y_2class = y.long()  # [B, H, W] with values 0 or 1
+            self.train_metrics.update(y_hat_2class, y_2class)
+        else:
+            self.train_metrics.update(y_hat, y)
 
         return loss
 
@@ -538,14 +695,22 @@ class CustomSemanticSegmentationTask(BaseTask):
             loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
             y_hat = y_hat_tuple[0]
             y = y_seg
+        elif self.hparams["model"] == "sam2":
+            # SAM-2 validation step
+            loss, y_hat, y = self._sam2_forward_step(batch, is_training=False)
         else:
             y = batch["mask"].squeeze(1)
             y_hat = self(x)
             loss: Tensor = self.criterion(y_hat, y)
 
         for i in range(y_hat.shape[0]):
-            output = y_hat[i].argmax(dim=0).cpu().numpy().astype(np.uint8)
-            mask = y[i].cpu().numpy().astype(np.uint8)
+            if self.hparams["model"] == "sam2":
+                # SAM-2: binary prediction, threshold at 0.5
+                output = (y_hat[i] > 0.5).cpu().numpy().astype(np.uint8)
+                mask = y[i].cpu().numpy().astype(np.uint8)
+            else:
+                output = y_hat[i].argmax(dim=0).cpu().numpy().astype(np.uint8)
+                mask = y[i].cpu().numpy().astype(np.uint8)
             tps, fps, fns = get_object_level_metrics(mask, output, iou_threshold=0.5)
             self.val_tps += tps
             self.val_fps += fps
@@ -559,8 +724,15 @@ class CustomSemanticSegmentationTask(BaseTask):
             prog_bar=True,
             sync_dist=True,
         )
-        self.val_metrics.update(y_hat, y)
-        self.val_agg.update(y_hat, y)
+        # For SAM-2, convert binary predictions to 2-class format for metrics
+        if self.hparams["model"] == "sam2":
+            y_hat_2class = torch.stack([1 - y_hat, y_hat], dim=1)
+            y_2class = y.long()
+            self.val_metrics.update(y_hat_2class, y_2class)
+            self.val_agg.update(y_hat_2class, y_2class)
+        else:
+            self.val_metrics.update(y_hat, y)
+            self.val_agg.update(y_hat, y)
 
         if (
             batch_idx < 10
@@ -630,12 +802,21 @@ class CustomSemanticSegmentationTask(BaseTask):
             loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
             y_hat = y_hat_tuple[0]
             y = y_seg
+        elif self.hparams["model"] == "sam2":
+            # SAM-2 test step
+            loss, y_hat, y = self._sam2_forward_step(batch, is_training=False)
         else:
             y = batch["mask"].squeeze(1)
             y_hat = self(x)
             loss: Tensor = self.criterion(y_hat, y)
         self.log("test_loss", loss)
-        self.test_metrics.update(y_hat, y)
+        # For SAM-2, convert binary predictions to 2-class format for metrics
+        if self.hparams["model"] == "sam2":
+            y_hat_2class = torch.stack([1 - y_hat, y_hat], dim=1)
+            y_2class = y.long()
+            self.test_metrics.update(y_hat_2class, y_2class)
+        else:
+            self.test_metrics.update(y_hat, y)
 
     def configure_optimizers(
         self,
@@ -645,7 +826,13 @@ class CustomSemanticSegmentationTask(BaseTask):
         Returns:
             Optimizer and learning rate scheduler.
         """
-        optimizer = AdamW(self.parameters(), lr=self.hparams["lr"], amsgrad=True)
+        # For SAM-2, only optimize mask decoder parameters
+        if self.hparams["model"] == "sam2":
+            params = self.model.sam_mask_decoder.parameters()
+        else:
+            params = self.parameters()
+        
+        optimizer = AdamW(params, lr=self.hparams["lr"], amsgrad=True)
         scheduler = CosineAnnealingLR(
             optimizer, T_max=self.hparams["patience"], eta_min=1e-6
         )

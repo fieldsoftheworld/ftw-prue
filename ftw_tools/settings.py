@@ -51,6 +51,7 @@ TEMPORAL_OPTIONS = [
     "median",
     "rgb",
     "random_window",
+    "sam2",
 ]
 
 LULC_COLLECTIONS = [

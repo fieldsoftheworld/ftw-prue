@@ -492,25 +492,58 @@ class CustomSemanticSegmentationTask(BaseTask):
         
         model = self.model
         
+        # Resize images to model.image_size (typically 1024) to match SAM-2 expectations
+        # This is critical - SAM-2 expects images resized to model.image_size
+        # Store original size for later upsampling
+        orig_H, orig_W = img_b.shape[-2:]
+        target_size = model.image_size
+        
+        img_a_resized = F.interpolate(
+            img_a,
+            size=(target_size, target_size),
+            mode="bilinear",
+            align_corners=False
+        )
+        img_b_resized = F.interpolate(
+            img_b,
+            size=(target_size, target_size),
+            mode="bilinear",
+            align_corners=False
+        )
+        
         # Temporal memory (no grad in training, grad in validation for consistency)
         with torch.set_grad_enabled(False):
-            _ = model.forward_image(img_a)
+            _ = model.forward_image(img_a_resized)
         
         # Forward on window_b
         with torch.set_grad_enabled(is_training):
-            feats = model.forward_image(img_b)
+            feats = model.forward_image(img_b_resized)
             
-            H, W = img_b.shape[-2:]
+            H, W = target_size, target_size  # Use target size for point normalization
             
             # Normalize points to model's image_size
+            # Points are in original image coordinates (orig_H x orig_W)
+            # Need to scale them to resized image coordinates (target_size x target_size)
             points_norm = points.clone()
-            points_norm[:, :, 0] /= W  # Normalize x
-            points_norm[:, :, 1] /= H  # Normalize y
-            points_norm *= model.image_size
+            # Scale points from original size to resized size
+            scale_x = target_size / orig_W
+            scale_y = target_size / orig_H
+            points_norm[:, :, 0] *= scale_x  # Scale x to resized image
+            points_norm[:, :, 1] *= scale_y  # Scale y to resized image
+            # Normalize to [0, 1] based on resized image size, then scale to model.image_size
+            points_norm[:, :, 0] /= target_size
+            points_norm[:, :, 1] /= target_size
+            points_norm *= model.image_size  # Should be same as target_size, but use model.image_size for consistency
             
-            # Prepare mask prompt (downsampled GT)
-            mask_prompt = F.interpolate(
+            # Resize field_mask to match resized image size, then downsample for mask prompt
+            field_mask_resized = F.interpolate(
                 field_mask.unsqueeze(1),
+                size=(target_size, target_size),
+                mode="nearest",
+            )
+            # Prepare mask prompt (downsampled GT from resized image)
+            mask_prompt = F.interpolate(
+                field_mask_resized,
                 size=(model.image_size // 4, model.image_size // 4),
                 mode="nearest",
             )
@@ -538,11 +571,11 @@ class CustomSemanticSegmentationTask(BaseTask):
                 high_res_features=high_res_features,
             )
             
-            # Apply sigmoid and upsample
+            # Apply sigmoid and upsample to original image size
             pred = torch.sigmoid(low_res_masks[:, 0])
             pred = F.interpolate(
                 pred.unsqueeze(1),
-                size=field_mask.shape[-2:],
+                size=(orig_H, orig_W),  # Upsample to original image size
                 mode="bilinear",
                 align_corners=False
             ).squeeze(1)
@@ -710,9 +743,9 @@ class CustomSemanticSegmentationTask(BaseTask):
                 y_hat = y_hat_tuple[0]
                 y = y_seg
             else:
-            y = batch["mask"].squeeze(1)
-            y_hat = self(x)
-            loss: Tensor = self.criterion(y_hat, y)
+                y = batch["mask"].squeeze(1)
+                y_hat = self(x)
+                loss: Tensor = self.criterion(y_hat, y)
 
         for i in range(y_hat.shape[0]):
             if self.hparams["model"] == "sam2":
@@ -819,9 +852,9 @@ class CustomSemanticSegmentationTask(BaseTask):
                 y_hat = y_hat_tuple[0]
                 y = y_seg
             else:
-            y = batch["mask"].squeeze(1)
-            y_hat = self(x)
-            loss: Tensor = self.criterion(y_hat, y)
+                y = batch["mask"].squeeze(1)
+                y_hat = self(x)
+                loss: Tensor = self.criterion(y_hat, y)
         self.log("test_loss", loss)
         # For SAM-2, convert binary predictions to 2-class format for metrics
         if self.hparams["model"] == "sam2":

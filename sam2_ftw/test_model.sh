@@ -1,7 +1,6 @@
 #!/bin/bash
 # Quick test script for SAM-2 FTW model
 
-# Configuration
 CHECKPOINT_PATH="${1:-logs/sam2-ftw-3-class/checkpoints/last.ckpt}"
 DATA_DIR="${2:-/u/gmuhawenayo/datasets/FTW-Dataset/ftw}"
 OUTPUT_FILE="${3:-sam2_ftw/test_results.json}"

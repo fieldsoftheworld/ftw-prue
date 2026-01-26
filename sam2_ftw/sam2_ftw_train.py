@@ -17,9 +17,6 @@ import geopandas as gpd
 from tqdm import tqdm
 import rasterio
 
-# ---------------------------------------------------------------------
-# PATHS
-# ---------------------------------------------------------------------
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -27,10 +24,6 @@ sam2_repo_path = Path("/u/gmuhawenayo/projects/sam2")
 sys.path.insert(0, str(sam2_repo_path))
 
 from sam2.build_sam import build_sam2_video_predictor
-
-# ---------------------------------------------------------------------
-# CONFIG
-# ---------------------------------------------------------------------
 DATA_ROOT = "/u/gmuhawenayo/datasets/FTW-Dataset/ftw"
 CHECKPOINT_PATH = "/u/gmuhawenayo/projects/sam2/checkpoints/sam2.1_hiera_small.pt"
 MODEL_CFG = "sam2_hiera_s.yaml"
@@ -45,9 +38,7 @@ ACCUMULATION_STEPS = 4
 LR = 1e-4
 WEIGHT_DECAY = 1e-4
 
-# ---------------------------------------------------------------------
-# DATA
-# ---------------------------------------------------------------------
+
 def load_ftw_data(data_root, countries, split="train"):
     data = []
     for country in countries:
@@ -87,10 +78,8 @@ def read_temporal_sample(data):
     img_b = cv2.resize(img_b, (w, h))
     mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
 
-    # Binary field mask (class 1 + 2)
     field_mask = ((mask == 1) | (mask == 2)).astype(np.float32)
 
-    # Positive point sampling
     ys, xs = np.where(field_mask > 0)
     if len(xs) == 0:
         return None
@@ -102,16 +91,12 @@ def read_temporal_sample(data):
     return img_a, img_b, field_mask, points, labels
 
 
-# ---------------------------------------------------------------------
-# MAIN
-# ---------------------------------------------------------------------
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     train_data = load_ftw_data(DATA_ROOT, COUNTRIES, "train")
     assert len(train_data) > 0
 
-    # Build predictor
     predictor = build_sam2_video_predictor(
         MODEL_CFG, checkpoint=None, device=device
     )
@@ -122,9 +107,6 @@ def main():
 
     model = predictor
 
-    # -----------------------------------------------------------------
-    # FREEZE EVERYTHING EXCEPT MASK DECODER
-    # -----------------------------------------------------------------
     for p in model.image_encoder.parameters():
         p.requires_grad = False
     for p in model.sam_prompt_encoder.parameters():
@@ -144,9 +126,6 @@ def main():
 
     mean_iou = 0.0
 
-    # -----------------------------------------------------------------
-    # TRAIN LOOP
-    # -----------------------------------------------------------------
     for step in tqdm(range(1, NO_OF_STEPS + 1)):
         sample = read_temporal_sample(train_data)
         if sample is None:
@@ -159,11 +138,9 @@ def main():
 
         gt_mask = torch.from_numpy(gt_mask).unsqueeze(0).to(device)
 
-        # ---- Temporal memory (NO grad) ----
         with torch.no_grad():
             _ = model.forward_image(img_a)
 
-        # ---- Train on frame B ----
         with torch.cuda.amp.autocast(enabled=(device == "cuda")):
             feats = model.forward_image(img_b)
 
@@ -176,7 +153,6 @@ def main():
             pts_t = torch.tensor(pts_norm).unsqueeze(0).to(device)
             lbls_t = torch.tensor(lbls).unsqueeze(0).to(device)
 
-            # ---- MASK PROMPT (downsampled GT) ----
             mask_prompt = F.interpolate(
                 gt_mask.unsqueeze(0),
                 size=(model.image_size // 4, model.image_size // 4),
@@ -191,7 +167,6 @@ def main():
 
             high_res_features = None
             if model.use_high_res_features_in_sam:
-                # SAM-2 expects exactly two feature maps
                 high_res_features = feats["backbone_fpn"][:2]
 
             low_res_masks, _, _, _ = model.sam_mask_decoder(
@@ -229,7 +204,7 @@ def main():
     torch.save(model.sam_mask_decoder.state_dict(),
                os.path.join(OUTPUT_DIR, "mask_decoder_final.pt"))
 
-    print("✅ Training complete")
+    print("Training complete")
 
 
 if __name__ == "__main__":

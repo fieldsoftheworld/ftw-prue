@@ -214,7 +214,6 @@ class CustomSemanticSegmentationTask(BaseTask):
                 dist_weight=model_kwargs.get("dist_weight", 1.0),
             )
         elif loss == "bce" or loss == "sam2":
-            # Binary cross-entropy for SAM-2
             self.criterion = nn.BCELoss()
         else:
             raise ValueError(f"Loss type '{loss}' is not valid. "
@@ -331,9 +330,6 @@ class CustomSemanticSegmentationTask(BaseTask):
                                            original_input_size=model_kwargs['original_input_size']
                                            )
         elif model == "gfm":
-            # -------------------------
-            # 1. Load frozen encoder
-            # -------------------------
             from pretrained.pretrained_factory import get_encoder
             self.backbone = get_encoder(
                 model_name=backbone,
@@ -344,10 +340,6 @@ class CustomSemanticSegmentationTask(BaseTask):
             for p in self.backbone.parameters():
                 p.requires_grad = False
 
-            # -------------------------
-            # 2. Use SAME decoder as pretrained mode
-            #    so ckpt from feature-based training loads fine
-            # -------------------------
             from ..models.segmentor import SegmentationHead
             self.model = SegmentationHead(
                 num_classes=num_classes,
@@ -388,7 +380,6 @@ class CustomSemanticSegmentationTask(BaseTask):
         elif model == "sam2":
             import sys
             from pathlib import Path
-            # Add sam2 repo to path if needed
             sam2_repo_path = model_kwargs.get("sam2_repo_path", None)
             if sam2_repo_path and Path(sam2_repo_path).exists():
                 if str(sam2_repo_path) not in sys.path:
@@ -399,22 +390,19 @@ class CustomSemanticSegmentationTask(BaseTask):
             model_cfg = model_kwargs.get("model_cfg", "sam2_hiera_s.yaml")
             checkpoint_path = model_kwargs.get("checkpoint_path", None)
             
-            # Build SAM-2 model
             self.model = build_sam2_video_predictor(
                 model_cfg, 
-                checkpoint=None,  # Load checkpoint separately
+                checkpoint=None,
                 device=self.device,
                 mode="train"
             )
             
-            # Load base checkpoint
             if checkpoint_path and Path(checkpoint_path).exists():
                 ckpt = torch.load(checkpoint_path, map_location="cpu")
                 state = ckpt["model"] if "model" in ckpt else ckpt
                 self.model.load_state_dict(state, strict=False)
                 print(f"[SAM-2] Loaded base checkpoint from {checkpoint_path}")
             
-            # Freeze everything except mask decoder
             for p in self.model.image_encoder.parameters():
                 p.requires_grad = False
             for p in self.model.sam_prompt_encoder.parameters():
@@ -434,12 +422,10 @@ class CustomSemanticSegmentationTask(BaseTask):
                 "Currently, only supports 'pretrained', 'unet', 'deeplabv3+', 'fcn', 'upernet', 'segformer', 'dpt', 'gfm', 'decode', and 'sam2'."
             )
 
-        # Freeze backbone
         if self.hparams["freeze_backbone"] and model in ["unet", "deeplabv3+"]:
             for param in self.model.encoder.parameters():
                 param.requires_grad = False
 
-        # Freeze decoder
         if self.hparams["freeze_decoder"] and model in ["unet", "deeplabv3+"]:
             for param in self.model.decoder.parameters():
                 param.requires_grad = False
@@ -470,28 +456,17 @@ class CustomSemanticSegmentationTask(BaseTask):
         """
         import torch.nn.functional as F
         
-        window_a = batch["window_a"]  # [B, 3, H, W], float, 0-255 (uint8 converted to float)
-        window_b = batch["window_b"]  # [B, 3, H, W], float, 0-255 (uint8 converted to float)
-        field_mask = batch["field_mask"]  # [B, H, W], float, 0 or 1
-        points = batch.get("points", None)  # [B, N, 2] or None
-        point_labels = batch.get("point_labels", None)  # [B, N] or None
+        window_a = batch["window_a"]
+        window_b = batch["window_b"]
+        field_mask = batch["field_mask"]
+        points = batch.get("points", None)
+        point_labels = batch.get("point_labels", None)
         
-        # Normalize images to [0, 1]
-        # Images are stored as uint8 [0, 255] but converted to float tensor
-        # They were already normalized by 3000 in dataset, then scaled to [0, 255]
-        # So dividing by 255 gives us [0, 1] range (properly normalized from int16)
         img_a = window_a / 255.0
         img_b = window_b / 255.0
         
-        # Note: Empty masks have dummy points at (0, 0) with label 0
-        # This ensures consistent tensor shapes for DataLoader batching
-        # The model will process these normally, and loss will be computed correctly
-        
         model = self.model
         
-        # Resize images to model.image_size (typically 1024) to match SAM-2 expectations
-        # This is critical - SAM-2 expects images resized to model.image_size
-        # Store original size for later upsampling
         orig_H, orig_W = img_b.shape[-2:]
         target_size = model.image_size
         
@@ -508,56 +483,44 @@ class CustomSemanticSegmentationTask(BaseTask):
             align_corners=False
         )
         
-        # Temporal memory (no grad in training, grad in validation for consistency)
         with torch.set_grad_enabled(False):
             _ = model.forward_image(img_a_resized)
         
-        # Forward on window_b
         with torch.set_grad_enabled(is_training):
             feats = model.forward_image(img_b_resized)
             
-            H, W = target_size, target_size  # Use target size for point normalization
+            H, W = target_size, target_size
             
-            # Normalize points to model's image_size
-            # Points are in original image coordinates (orig_H x orig_W)
-            # Need to scale them to resized image coordinates (target_size x target_size)
             points_norm = points.clone()
-            # Scale points from original size to resized size
             scale_x = target_size / orig_W
             scale_y = target_size / orig_H
-            points_norm[:, :, 0] *= scale_x  # Scale x to resized image
-            points_norm[:, :, 1] *= scale_y  # Scale y to resized image
-            # Normalize to [0, 1] based on resized image size, then scale to model.image_size
+            points_norm[:, :, 0] *= scale_x
+            points_norm[:, :, 1] *= scale_y
             points_norm[:, :, 0] /= target_size
             points_norm[:, :, 1] /= target_size
-            points_norm *= model.image_size  # Should be same as target_size, but use model.image_size for consistency
+            points_norm *= model.image_size
             
-            # Resize field_mask to match resized image size, then downsample for mask prompt
             field_mask_resized = F.interpolate(
                 field_mask.unsqueeze(1),
                 size=(target_size, target_size),
                 mode="nearest",
             )
-            # Prepare mask prompt (downsampled GT from resized image)
             mask_prompt = F.interpolate(
                 field_mask_resized,
                 size=(model.image_size // 4, model.image_size // 4),
                 mode="nearest",
             )
             
-            # Encode prompts
             sparse, dense = model.sam_prompt_encoder(
                 points=(points_norm, point_labels),
                 boxes=None,
                 masks=mask_prompt,
             )
             
-            # Get high-res features if available
             high_res_features = None
             if model.use_high_res_features_in_sam:
                 high_res_features = feats["backbone_fpn"][:2]
             
-            # Decode masks
             low_res_masks, _, _, _ = model.sam_mask_decoder(
                 image_embeddings=feats["vision_features"],
                 image_pe=model.sam_prompt_encoder.get_dense_pe(),
@@ -568,16 +531,14 @@ class CustomSemanticSegmentationTask(BaseTask):
                 high_res_features=high_res_features,
             )
             
-            # Apply sigmoid and upsample to original image size
             pred = torch.sigmoid(low_res_masks[:, 0])
             pred = F.interpolate(
                 pred.unsqueeze(1),
-                size=(orig_H, orig_W),  # Upsample to original image size
+                size=(orig_H, orig_W),
                 mode="bilinear",
                 align_corners=False
             ).squeeze(1)
             
-            # Compute loss
             loss = self.criterion(pred, field_mask)
         
         return loss, pred, field_mask
@@ -598,8 +559,6 @@ class CustomSemanticSegmentationTask(BaseTask):
             return self.model(x)
 
         if model_type == "sam2":
-            # SAM-2 forward is handled in training_step/validation_step
-            # This forward method is not used for SAM-2
             raise NotImplementedError("SAM-2 forward should be called through training_step/validation_step")
 
         return self.model(x)
@@ -622,9 +581,7 @@ class CustomSemanticSegmentationTask(BaseTask):
             raise AssertionError("Input type 'images' not supported for pretrained model. " \
                                 "We have to precompute features for the GFM model.")
         
-        # SAM-2 mode: handle early to avoid accessing batch["image"]
         if self.hparams["model"] == "sam2":
-            # SAM-2 training step
             loss, y_hat, y = self._sam2_forward_step(batch, is_training=True)
             self.log(
                 "train/loss",
@@ -634,10 +591,8 @@ class CustomSemanticSegmentationTask(BaseTask):
                 prog_bar=True,
                 sync_dist=True,
             )
-            # For SAM-2, convert binary predictions to 2-class format for metrics
-            # Convert binary [B, H, W] to 2-class [B, 2, H, W] for metrics
-            y_hat_2class = torch.stack([1 - y_hat, y_hat], dim=1)  # [B, 2, H, W]
-            y_2class = y.long()  # [B, H, W] with values 0 or 1
+            y_hat_2class = torch.stack([1 - y_hat, y_hat], dim=1)
+            y_2class = y.long()
             self.train_metrics.update(y_hat_2class, y_2class)
             return loss
         
@@ -702,9 +657,7 @@ class CustomSemanticSegmentationTask(BaseTask):
         if "image" in batch and self.hparams["model"] == "pretrained":
             raise AssertionError("Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model.")
         
-        # SAM-2 mode: handle early to avoid accessing batch["image"]
         if self.hparams["model"] == "sam2":
-            # SAM-2 validation step
             loss, y_hat, y = self._sam2_forward_step(batch, is_training=False)
         else:
             if self.hparams["model"] == "gfm":
@@ -746,7 +699,6 @@ class CustomSemanticSegmentationTask(BaseTask):
 
         for i in range(y_hat.shape[0]):
             if self.hparams["model"] == "sam2":
-                # SAM-2: binary prediction, threshold at 0.5
                 output = (y_hat[i] > 0.5).cpu().numpy().astype(np.uint8)
                 mask = y[i].cpu().numpy().astype(np.uint8)
             else:
@@ -765,7 +717,6 @@ class CustomSemanticSegmentationTask(BaseTask):
             prog_bar=True,
             sync_dist=True,
         )
-        # For SAM-2, convert binary predictions to 2-class format for metrics
         if self.hparams["model"] == "sam2":
             y_hat_2class = torch.stack([1 - y_hat, y_hat], dim=1)
             y_2class = y.long()
@@ -791,7 +742,6 @@ class CustomSemanticSegmentationTask(BaseTask):
                 fig: Optional[Figure] = datamodule.plot(sample)
                 if fig:
                     
-                    # ✅ Log figure directly to WandB
                     self.logger.experiment.log({
                         f"val/sample_{batch_idx}": wandb.Image(fig),
                         "global_step": self.global_step
@@ -810,9 +760,7 @@ class CustomSemanticSegmentationTask(BaseTask):
         if "image" in batch and self.hparams["model"] == "pretrained":
             raise AssertionError("Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model.")
         
-        # SAM-2 mode: handle early to avoid accessing batch["image"]
         if self.hparams["model"] == "sam2":
-            # SAM-2 test step
             loss, y_hat, y = self._sam2_forward_step(batch, is_training=False)
         else:
             if self.hparams["model"] == "gfm":
@@ -853,7 +801,6 @@ class CustomSemanticSegmentationTask(BaseTask):
                 y_hat = self(x)
                 loss: Tensor = self.criterion(y_hat, y)
         self.log("test_loss", loss)
-        # For SAM-2, convert binary predictions to 2-class format for metrics
         if self.hparams["model"] == "sam2":
             y_hat_2class = torch.stack([1 - y_hat, y_hat], dim=1)
             y_2class = y.long()
@@ -869,7 +816,6 @@ class CustomSemanticSegmentationTask(BaseTask):
         Returns:
             Optimizer and learning rate scheduler.
         """
-        # For SAM-2, only optimize mask decoder parameters
         if self.hparams["model"] == "sam2":
             params = self.model.sam_mask_decoder.parameters()
         else:
@@ -932,7 +878,6 @@ class CustomSemanticSegmentationTask(BaseTask):
         self._log_per_class(per_class, "val")
         self.val_metrics.reset()
 
-        # log aggregates (single scalars)
         agg = self.val_agg.compute()
         self.log_dict(agg, on_step=False, on_epoch=True, sync_dist=True)
         self.val_agg.reset()
@@ -966,14 +911,11 @@ class CustomSemanticSegmentationTask(BaseTask):
         update_weights = True
 
         for index, layer_key in enumerate(pretrained_weights):
-            # TODO : generalizing the patch mapping
             encoder_key = prefix + layer_key
             layer_w = pretrained_weights[layer_key]
             if encoder_key in model_dict:
-                if index == 0:  # pacth first conv. layer weights
-                    # Extract pre-trained weights for the first convolutional layer
+                if index == 0:
                     pretrained_conv1_weights = layer_w
-                    # Retrieve the current conv1 weights
                     new_conv1_weights = model_dict[encoder_key]
                     new_conv1_weights[:, :3, :, :] = pretrained_conv1_weights[
                         :, :3, :, :

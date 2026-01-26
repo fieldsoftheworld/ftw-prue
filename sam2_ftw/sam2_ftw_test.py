@@ -20,9 +20,6 @@ import rasterio
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# ---------------------------------------------------------------------
-# PATHS
-# ---------------------------------------------------------------------
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -30,10 +27,6 @@ sam2_repo_path = Path("/u/gmuhawenayo/projects/sam2")
 sys.path.insert(0, str(sam2_repo_path))
 
 from sam2.build_sam import build_sam2_video_predictor
-
-# ---------------------------------------------------------------------
-# CONFIG
-# ---------------------------------------------------------------------
 DATA_ROOT = "/u/gmuhawenayo/datasets/FTW-Dataset/ftw"
 MODEL_CFG = "sam2_hiera_s.yaml"
 BASE_CHECKPOINT = "/u/gmuhawenayo/projects/sam2/checkpoints/sam2.1_hiera_small.pt"
@@ -46,9 +39,7 @@ NUM_SAMPLES = 30
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ---------------------------------------------------------------------
-# DATA
-# ---------------------------------------------------------------------
+
 def load_ftw_data(root, countries, split="test"):
     data = []
     for c in countries:
@@ -105,22 +96,18 @@ def compute_iou(pred, gt):
     union = (pred | gt).sum()
     return inter / (union + 1e-8)
 
-# ---------------------------------------------------------------------
-# MAIN
-# ---------------------------------------------------------------------
+
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     test_data = load_ftw_data(DATA_ROOT, COUNTRIES, "test")
     test_data = test_data[:NUM_SAMPLES]
 
-    # Build model
     model = build_sam2_video_predictor(MODEL_CFG, checkpoint=None, device=device)
 
     base_ckpt = torch.load(BASE_CHECKPOINT, map_location="cpu")
     model.load_state_dict(base_ckpt["model"], strict=False)
 
-    # Load fine-tuned decoder ONLY
     decoder_state = torch.load(FINE_TUNED_DECODER, map_location="cpu")
     model.sam_mask_decoder.load_state_dict(decoder_state, strict=False)
 
@@ -140,7 +127,6 @@ def main():
         gt_bin_t = torch.from_numpy(gt_bin).unsqueeze(0).to(device)
 
         with torch.no_grad():
-            # Temporal memory
             _ = model.forward_image(img_a)
 
             feats = model.forward_image(img_b)
@@ -186,7 +172,6 @@ def main():
         iou = compute_iou(pred, gt_bin)
         ious.append(iou)
 
-        # Visualization
         plt.figure(figsize=(15, 4))
         plt.subplot(1, 4, 1); plt.title("Window B"); plt.imshow(img_b[0].permute(1,2,0).cpu()); plt.axis("off")
         plt.subplot(1, 4, 2); plt.title("GT"); plt.imshow(gt_bin, cmap="gray"); plt.axis("off")

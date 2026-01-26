@@ -592,6 +592,25 @@ class CustomSemanticSegmentationTask(BaseTask):
             raise AssertionError("Input type 'images' not supported for pretrained model. " \
                                 "We have to precompute features for the GFM model.")
         
+        # SAM-2 mode: handle early to avoid accessing batch["image"]
+        if self.hparams["model"] == "sam2":
+            # SAM-2 training step
+            loss, y_hat, y = self._sam2_forward_step(batch, is_training=True)
+            self.log(
+                "train/loss",
+                loss,
+                on_step=True,
+                on_epoch=True,
+                prog_bar=True,
+                sync_dist=True,
+            )
+            # For SAM-2, convert binary predictions to 2-class format for metrics
+            # Convert binary [B, H, W] to 2-class [B, 2, H, W] for metrics
+            y_hat_2class = torch.stack([1 - y_hat, y_hat], dim=1)  # [B, 2, H, W]
+            y_2class = y.long()  # [B, H, W] with values 0 or 1
+            self.train_metrics.update(y_hat_2class, y_2class)
+            return loss
+        
         if self.hparams["model"] == "gfm":
             if self.hparams["backbone"] == "clay":
                 x = {
@@ -624,9 +643,6 @@ class CustomSemanticSegmentationTask(BaseTask):
             loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
             y_hat = y_hat_tuple[0]
             y = y_seg
-        elif self.hparams["model"] == "sam2":
-            # SAM-2 training step
-            loss, y_hat, y = self._sam2_forward_step(batch, is_training=True)
         else:
             y = batch["mask"].squeeze(1)
             y_hat = self(x)
@@ -639,14 +655,7 @@ class CustomSemanticSegmentationTask(BaseTask):
             prog_bar=True,
             sync_dist=True,
         )
-        # For SAM-2, convert binary predictions to 2-class format for metrics
-        if self.hparams["model"] == "sam2":
-            # Convert binary [B, H, W] to 2-class [B, 2, H, W] for metrics
-            y_hat_2class = torch.stack([1 - y_hat, y_hat], dim=1)  # [B, 2, H, W]
-            y_2class = y.long()  # [B, H, W] with values 0 or 1
-            self.train_metrics.update(y_hat_2class, y_2class)
-        else:
-            self.train_metrics.update(y_hat, y)
+        self.train_metrics.update(y_hat, y)
 
         return loss
 
@@ -663,42 +672,44 @@ class CustomSemanticSegmentationTask(BaseTask):
         if "image" in batch and self.hparams["model"] == "pretrained":
             raise AssertionError("Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model.")
         
-        if self.hparams["model"] == "gfm":
-            if self.hparams["backbone"] == "clay":
-                x = {
-                    "platform": batch["platform"],
-                    "image": batch["image"],
-                    "time": batch["time"],
-                    "latlon": batch["latlon"],
-                    "gsd": batch["gsd"],
-                    "waves": batch["waves"],
-                }
-            else:
-                x = batch["image"]
-        elif "feat" in batch and self.hparams["model"] == "pretrained":
-            x = batch["feat"]
-        else:
-            x = batch["image"]
-
-        if self.hparams["model"] == "decode":
-            y_hat_tuple = self(x)
-            y_seg = batch["mask"].squeeze(1)
-            y_bound = batch["boundary"].squeeze(1) if "boundary" in batch else None
-            y_dist = batch["distance"].squeeze(1) if "distance" in batch else None
-            
-            num_classes = self.hparams["num_classes"]
-            presence_only = self.hparams.get("presence_only", False)
-            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only=presence_only)
-            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only) if y_bound is not None else (None, None)
-            
-            labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1) if y_dist is not None else None]
-            loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
-            y_hat = y_hat_tuple[0]
-            y = y_seg
-        elif self.hparams["model"] == "sam2":
+        # SAM-2 mode: handle early to avoid accessing batch["image"]
+        if self.hparams["model"] == "sam2":
             # SAM-2 validation step
             loss, y_hat, y = self._sam2_forward_step(batch, is_training=False)
         else:
+            if self.hparams["model"] == "gfm":
+                if self.hparams["backbone"] == "clay":
+                    x = {
+                        "platform": batch["platform"],
+                        "image": batch["image"],
+                        "time": batch["time"],
+                        "latlon": batch["latlon"],
+                        "gsd": batch["gsd"],
+                        "waves": batch["waves"],
+                    }
+                else:
+                    x = batch["image"]
+            elif "feat" in batch and self.hparams["model"] == "pretrained":
+                x = batch["feat"]
+            else:
+                x = batch["image"]
+
+            if self.hparams["model"] == "decode":
+                y_hat_tuple = self(x)
+                y_seg = batch["mask"].squeeze(1)
+                y_bound = batch["boundary"].squeeze(1) if "boundary" in batch else None
+                y_dist = batch["distance"].squeeze(1) if "distance" in batch else None
+                
+                num_classes = self.hparams["num_classes"]
+                presence_only = self.hparams.get("presence_only", False)
+                one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only=presence_only)
+                one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only) if y_bound is not None else (None, None)
+                
+                labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1) if y_dist is not None else None]
+                loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
+                y_hat = y_hat_tuple[0]
+                y = y_seg
+            else:
             y = batch["mask"].squeeze(1)
             y_hat = self(x)
             loss: Tensor = self.criterion(y_hat, y)
@@ -769,43 +780,45 @@ class CustomSemanticSegmentationTask(BaseTask):
         if "image" in batch and self.hparams["model"] == "pretrained":
             raise AssertionError("Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model.")
         
-        if self.hparams["model"] == "gfm":
-            if self.hparams["backbone"] == "clay":
-                x = {
-                    "platform": batch["platform"],
-                    "image": batch["image"],
-                    "time": batch["time"],
-                    "latlon": batch["latlon"],
-                    "gsd": batch["gsd"],
-                    "waves": batch["waves"],
-                }
-            else:
-                x = batch["image"]
-
-        elif "feat" in batch and self.hparams["model"] == "pretrained":
-            x = batch["feat"]
-        else:
-            x = batch["image"]
-
-        if self.hparams["model"] == "decode":
-            y_hat_tuple = self(x)
-            y_seg = batch["mask"].squeeze(1)
-            y_bound = batch["boundary"].squeeze(1) if "boundary" in batch else None
-            y_dist = batch["distance"].squeeze(1) if "distance" in batch else None
-            
-            num_classes = self.hparams["num_classes"]
-            presence_only = self.hparams.get("presence_only", False)
-            one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only=presence_only)
-            one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only) if y_bound is not None else (None, None)
-            
-            labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1) if y_dist is not None else None]
-            loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
-            y_hat = y_hat_tuple[0]
-            y = y_seg
-        elif self.hparams["model"] == "sam2":
+        # SAM-2 mode: handle early to avoid accessing batch["image"]
+        if self.hparams["model"] == "sam2":
             # SAM-2 test step
             loss, y_hat, y = self._sam2_forward_step(batch, is_training=False)
         else:
+            if self.hparams["model"] == "gfm":
+                if self.hparams["backbone"] == "clay":
+                    x = {
+                        "platform": batch["platform"],
+                        "image": batch["image"],
+                        "time": batch["time"],
+                        "latlon": batch["latlon"],
+                        "gsd": batch["gsd"],
+                        "waves": batch["waves"],
+                    }
+                else:
+                    x = batch["image"]
+
+            elif "feat" in batch and self.hparams["model"] == "pretrained":
+                x = batch["feat"]
+            else:
+                x = batch["image"]
+
+            if self.hparams["model"] == "decode":
+                y_hat_tuple = self(x)
+                y_seg = batch["mask"].squeeze(1)
+                y_bound = batch["boundary"].squeeze(1) if "boundary" in batch else None
+                y_dist = batch["distance"].squeeze(1) if "distance" in batch else None
+                
+                num_classes = self.hparams["num_classes"]
+                presence_only = self.hparams.get("presence_only", False)
+                one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only=presence_only)
+                one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only) if y_bound is not None else (None, None)
+                
+                labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1) if y_dist is not None else None]
+                loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
+                y_hat = y_hat_tuple[0]
+                y = y_seg
+            else:
             y = batch["mask"].squeeze(1)
             y_hat = self(x)
             loss: Tensor = self.criterion(y_hat, y)

@@ -32,10 +32,9 @@ model:
     patience: 50
     model_kwargs:
       # SAM-2 specific parameters
-      sam2_repo_path: null  # Path to sam2 repo, or null to use system path
+      sam2_repo_path: "/u/gmuhawenayo/projects/sam2"  # Path to sam2 repo
       model_cfg: "sam2_hiera_s.yaml"  # SAM-2 config file name
-      checkpoint_path: null  # Path to base SAM-2 checkpoint (e.g., sam2.1_hiera_small.pt)
-      # If checkpoint_path is null, you need to set it via CLI: --model.model_kwargs.checkpoint_path /path/to/checkpoint.pt
+      checkpoint_path: "/u/gmuhawenayo/projects/sam2/checkpoints/sam2.1_hiera_small.pt"  # Path to base SAM-2 checkpoint
 data:
   class_path: ftw_tools.torchgeo.datamodules.FTWDataModule
   init_args:
@@ -53,5 +52,5 @@ data:
     load_boundaries: true  # Use 3-class masks (background, field, boundary)
     sam2_max_image_size: 1024  # Not used (FTW images are 256x256, no resizing needed)
     sam2_num_points: 1  # Number of points for training (3 for validation/test)
-    root: "data/ftw"  # Path to FTW dataset
+    root: "/u/gmuhawenayo/datasets/FTW-Dataset/ftw"  # Path to FTW dataset
 

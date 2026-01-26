@@ -473,9 +473,11 @@ class FTW(NonGeoDataset):
                     sample["points"] = torch.from_numpy(points).float()
                     sample["point_labels"] = torch.from_numpy(labels).long()
                 else:
-                    # No points available (empty mask)
-                    sample["points"] = None
-                    sample["point_labels"] = None
+                    # No points available (empty mask) - return dummy point at (0, 0) with label 0
+                    # This ensures consistent tensor shapes for DataLoader batching
+                    # The trainer will check for empty masks and handle them appropriately
+                    sample["points"] = torch.zeros((1, 2), dtype=torch.float32)
+                    sample["point_labels"] = torch.zeros((1,), dtype=torch.long)
                 
                 # Also store regular mask for compatibility
                 sample["mask"] = sample["field_mask"].long()

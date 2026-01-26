@@ -483,12 +483,9 @@ class CustomSemanticSegmentationTask(BaseTask):
         img_a = window_a / 255.0
         img_b = window_b / 255.0
         
-        # Skip samples without points (empty masks)
-        if points is None:
-            # Return dummy loss for empty masks
-            dummy_pred = torch.zeros_like(field_mask)
-            dummy_loss = torch.tensor(0.0, device=field_mask.device, requires_grad=True)
-            return dummy_loss, dummy_pred, field_mask
+        # Note: Empty masks have dummy points at (0, 0) with label 0
+        # This ensures consistent tensor shapes for DataLoader batching
+        # The model will process these normally, and loss will be computed correctly
         
         model = self.model
         

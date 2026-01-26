@@ -98,14 +98,28 @@ python -m ftw_tools.cli model fit \
 
 ```bash
 python -m ftw_tools.cli model test \
-  --model logs/sam2-ftw-2-class/checkpoints/last.ckpt \
+  --model logs/sam2-ftw-3-class/checkpoints/last.ckpt \
   --countries france \
   --test_split test \
   --input_type images \
   --temporal_options sam2 \
-  --dir ./data/ftw \
-  --gpu 0 \
-  --out results.json
+  --dir /u/gmuhawenayo/datasets/FTW-Dataset/ftw \
+  --gpu -1 \
+  --out sam2_ftw/test_results.json
+```
+
+Or use the provided test script:
+
+```bash
+# Basic usage (uses defaults)
+./sam2_ftw/test_model.sh
+
+# Custom checkpoint and output
+./sam2_ftw/test_model.sh \
+  logs/sam2-ftw-3-class/checkpoints/best.ckpt \
+  /u/gmuhawenayo/datasets/FTW-Dataset/ftw \
+  sam2_ftw/my_results.json \
+  -1  # GPU (-1 for CPU, 0 for GPU)
 ```
 
 ## Differences from Standalone Scripts

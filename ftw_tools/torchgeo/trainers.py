@@ -301,9 +301,9 @@ class CustomSemanticSegmentationTask(BaseTask):
                 device=self.device,
                 weights_path=weights if isinstance(weights, str) else None,
             )
-            self.backbone.eval()
-            for p in self.backbone.parameters():
-                p.requires_grad = False
+            # self.backbone.eval()
+            # for p in self.backbone.parameters():
+            #     p.requires_grad = False
 
             # -------------------------
             # 2. Use SAME decoder as pretrained mode

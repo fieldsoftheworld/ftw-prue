@@ -63,9 +63,9 @@ class SegmentEncoder(Encoder):
 
         # Handle freeze_encoder locally: options are 'none' or 'all'.
         # Freeze encoder parameters if requested.
-        if isinstance(freeze_encoder, str) and freeze_encoder.lower() == "all":
-            for param in self.parameters():
-                param.requires_grad = False
+        # if isinstance(freeze_encoder, str) and freeze_encoder.lower() == "all":
+        #     for param in self.parameters():
+        #         param.requires_grad = False
 
         # Set device
         self.device = (

@@ -42,7 +42,6 @@ FULL_DATA_COUNTRIES = [
 ]
 
 
-
 def prepare_input(batch, input_type, device):
     """Return model input based on run-time input_type, NOT model_type."""
 
@@ -100,29 +99,28 @@ def fit(config, ckpt_path, cli_args):
     }
     os.environ.update(rasterio_best_practices)
 
-
     with open(config, "r") as f:
         yaml_cfg = Box(yaml.safe_load(f))
 
     default_root_dir = yaml_cfg.trainer.default_root_dir
 
-    run_name = extract_flag(cli_args,"run_name", "debug")
-    log_mode = extract_flag(cli_args,"log_mode", "disabled")
-    project = extract_flag(cli_args,"project", "FTW-project")
+    run_name = extract_flag(cli_args, "run_name", "debug")
+    log_mode = extract_flag(cli_args, "log_mode", "disabled")
+    project = extract_flag(cli_args, "project", "FTW-project")
     print(f" Project name: {project}, Run name: {run_name}, Log mode: {log_mode}")
 
     wandb_logger_config = {
-    "class_path": "lightning.pytorch.loggers.wandb.WandbLogger",
-    "init_args": {
-        "project": project,
-        "name": run_name,
-        "save_dir": default_root_dir,
-        "mode": log_mode,
-        "log_model": False,
-    },
+        "class_path": "lightning.pytorch.loggers.wandb.WandbLogger",
+        "init_args": {
+            "project": project,
+            "name": run_name,
+            "save_dir": default_root_dir,
+            "mode": log_mode,
+            "log_model": False,
+        },
     }
 
-    cli = LightningCLI(
+    LightningCLI(
         model_class=BaseTask,
         seed_everything_default=0,
         subclass_mode_model=True,
@@ -169,7 +167,7 @@ def test(
     trainer.eval()
 
     saved_model_type = trainer.hparams.get("model", "unet")
-    saved_backbone   = trainer.hparams.get("backbone", None)
+    saved_backbone = trainer.hparams.get("backbone", None)
     print(f"  → saved_model_type={saved_model_type}, saved_backbone={saved_backbone}")
 
     if input_type == "images_noaug":
@@ -216,7 +214,7 @@ def test(
             encoder = get_encoder(
                 model_name=backbone_name,
                 device=device,
-                weights_path=encoder_ckpt_path,  
+                weights_path=encoder_ckpt_path,
             )
             encoder.eval()
 
@@ -229,7 +227,7 @@ def test(
 
     if countries == ("all",):
         countries = FULL_DATA_COUNTRIES
-    
+
     metadata_path = None
     if preprocessing == "clay":
         repo_root = Path(__file__).resolve().parents[2]
@@ -252,7 +250,9 @@ def test(
         metadata_path=metadata_path,
     )
 
-    dl = DataLoader(ds, batch_size=64, shuffle=False, num_workers=12)
+    # Smaller batch size for SAM-2 to avoid CUDA issues
+    batch_size = 4 if saved_model_type == "sam2" else 64
+    dl = DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=12)
     print(f"  → Loaded {len(ds)} samples in {time.time() - tic:.2f}s")
 
     if test_on_3_classes:
@@ -281,27 +281,32 @@ def test(
                 field_mask = batch["field_mask"].to(device)
                 points = batch.get("points", None)
                 point_labels = batch.get("point_labels", None)
-                
+
+                if points is not None:
+                    points = points.to(device)
+                if point_labels is not None:
+                    point_labels = point_labels.to(device)
+
                 if points is None or points.shape[1] == 0:
                     logits = torch.zeros((field_mask.shape[0], 2, *field_mask.shape[1:]), device=device)
                 else:
                     model = decoder
-                    
+
                     target_size = model.image_size
                     orig_H, orig_W = window_b.shape[-2:]
-                    
+
                     window_a_resized = F.interpolate(
                         window_a, size=(target_size, target_size), mode="bilinear", align_corners=False
                     )
                     window_b_resized = F.interpolate(
                         window_b, size=(target_size, target_size), mode="bilinear", align_corners=False
                     )
-                    
+
                     with torch.no_grad():
                         _ = model.forward_image(window_a_resized)
-                    
+
                     feats = model.forward_image(window_b_resized)
-                    
+
                     points_norm = points.clone()
                     scale_x = target_size / orig_W
                     scale_y = target_size / orig_H
@@ -310,22 +315,22 @@ def test(
                     points_norm[:, :, 0] /= target_size
                     points_norm[:, :, 1] /= target_size
                     points_norm *= model.image_size
-                    
+
                     field_mask_resized = F.interpolate(
                         field_mask.unsqueeze(1), size=(target_size, target_size), mode="nearest"
                     )
                     mask_prompt = F.interpolate(
                         field_mask_resized, size=(model.image_size // 4, model.image_size // 4), mode="nearest"
                     )
-                    
+
                     sparse, dense = model.sam_prompt_encoder(
                         points=(points_norm, point_labels), boxes=None, masks=mask_prompt
                     )
-                    
+
                     high_res_features = None
                     if model.use_high_res_features_in_sam:
                         high_res_features = feats["backbone_fpn"][:2]
-                    
+
                     low_res_masks, _, _, _ = model.sam_mask_decoder(
                         image_embeddings=feats["vision_features"],
                         image_pe=model.sam_prompt_encoder.get_dense_pe(),
@@ -335,21 +340,20 @@ def test(
                         repeat_image=False,
                         high_res_features=high_res_features,
                     )
-                    
+
                     pred = torch.sigmoid(low_res_masks[:, 0])
                     pred = F.interpolate(
                         pred.unsqueeze(1), size=(orig_H, orig_W), mode="bilinear", align_corners=False
                     ).squeeze(1)
-                    
+
                     logits = torch.stack([1 - pred, pred], dim=1)
-                
+
                 outputs = logits.argmax(dim=1)
-                
                 masks = field_mask.long()
-                
+
             else:
                 x = prepare_input(batch, input_type, device)
-                
+
                 if model_type == "gfm":
                     feats = encoder(x)
                     logits = decoder(feats)
@@ -380,13 +384,13 @@ def test(
             all_fps += f
             all_fns += n
 
-    results   = metrics.compute()
+    results = metrics.compute()
     pixel_iou = results["MulticlassJaccardIndex"][1].item()
     pixel_prec = results["MulticlassPrecision"][1].item()
     pixel_recall = results["MulticlassRecall"][1].item()
 
     object_precision = all_tps / (all_tps + all_fps) if (all_tps + all_fps) > 0 else float("nan")
-    object_recall    = all_tps / (all_tps + all_fns) if (all_tps + all_fns) > 0 else float("nan")
+    object_recall = all_tps / (all_tps + all_fns) if (all_tps + all_fns) > 0 else float("nan")
     object_f1 = (
         2 * object_precision * object_recall / (object_precision + object_recall)
         if not (np.isnan(object_precision) or np.isnan(object_recall))

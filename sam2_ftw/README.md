@@ -1,3 +1,22 @@
+# MY SAM-2 QUICK COMMANDS (paths my need to be updated)
+
+### Training
+```bash
+python -m ftw_tools.cli model fit --config sam2_ftw/config_sam_rebuttal.yaml
+```
+
+### Testing
+```bash
+python -m ftw_tools.cli model test   --model /u/gmuhawenayo/projects/PRUE-CVPR/ftw-prue/logs/sam2-ftw-rebuttal/FTW-project/5294stag/checkpoints/last.ckpt   --countries germany   --test_split test   --input_type images   --temporal_options sam2   --dir /u/gmuhawenayo/datasets/FTW-Dataset/ftw   --gpu 0   --out sam2_ftw/test_results_germany.json
+```
+
+To test for all countries check [test_ftw_sam.sh](test_ftw_sam.sh])
+
+### Visualization
+```bash
+python viz_sam2_ftw.py   --model /u/gmuhawenayo/projects/PRUE-CVPR/ftw-prue/logs/sam2-ftw-rebuttal/FTW-project/5294stag/checkpoints/last.ckpt   --data_root /u/gmuhawenayo/datasets/FTW-Dataset/ftw   --country cambodia   --split test   --num_samples 5   --out_dir sam2_ftw/viz
+```
+
 # SAM-2 FTW Integration
 
 This directory contains the integration of SAM-2 (Segment Anything Model 2) into the FTW training pipeline.

@@ -1,0 +1,7 @@
+metric,mean,std
+pixel_iou,0.9769,0.0207
+pixel_precision,0.9853,0.0131
+pixel_recall,0.9911,0.0085
+object_precision,0.6728,0.0929
+object_recall,0.3883,0.1462
+object_f1,0.4839,0.1472

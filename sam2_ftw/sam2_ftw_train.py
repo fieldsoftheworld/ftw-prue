@@ -20,14 +20,17 @@ import rasterio
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-sam2_repo_path = Path("/u/gmuhawenayo/projects/sam2")
+sam2_repo_path = Path("/projects/benq/atwollam/FTW-Bakeoff/specialized_field_models/sam2/sam2") #Path("/u/gmuhawenayo/projects/sam2")
 sys.path.insert(0, str(sam2_repo_path))
 
 from sam2.build_sam import build_sam2_video_predictor
-DATA_ROOT = "/u/gmuhawenayo/datasets/FTW-Dataset/ftw"
-CHECKPOINT_PATH = "/u/gmuhawenayo/projects/sam2/checkpoints/sam2.1_hiera_small.pt"
-MODEL_CFG = "sam2_hiera_s.yaml"
+from sam2.modeling.backbones.utils import PatchEmbed
 
+DATA_ROOT = "/projects/benq/ftw-data/data/ftw" #"/u/gmuhawenayo/datasets/FTW-Dataset/ftw"
+CHECKPOINT_PATH = "/projects/benq/atwollam/FTW-Bakeoff/specialized_field_models/sam2/sam2/checkpoints/sam2.1_hiera_small.pt" #"/u/gmuhawenayo/projects/sam2/checkpoints/sam2.1_hiera_small.pt"
+MODEL_CFG = "/projects/benq/atwollam/FTW-Bakeoff/specialized_field_models/sam2/sam2/sam2/configs/sam2.1/sam2.1_hiera_s.yaml" #"sam2_hiera_s.yaml"
+
+CHANNELS = 4 # 3 for RGB, 4 for RGB-NIR
 COUNTRIES = ["france"]
 OUTPUT_DIR = "sam2_ftw"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -107,19 +110,42 @@ def main():
 
     model = predictor
 
-    for p in model.image_encoder.parameters():
-        p.requires_grad = False
+    if CHANNELS == 4:
+        emb_dim = 96 #whatever config setting has; 96 default
+        old_pemb = model.image_encoder.trunk.patch_embed
+        new_pemb = PatchEmbed(in_chans=4,embed_dim=emb_dim)
+
+        with torch.no_grad():
+            # copy existing weights
+            new_pemb.proj.weight[:, :3, :, :] = old_pemb.proj.weight
+            new_pemb.proj.bias.copy_(old_pemb.proj.bias)
+            # zero-init the 4th channel
+            new_pemb.proj.weight[:, 3:, :, :].zero_()
+
+        model.image_encoder.trunk.patch_embed = new_pemb
+
+        for p in model.image_encoder.parameters():
+            p.requires_grad = True
+        model.image_encoder.train()
+    else:
+        for p in model.image_encoder.parameters():
+            p.requires_grad = False
+        model.image_encoder.eval()
+
     for p in model.sam_prompt_encoder.parameters():
         p.requires_grad = False
     for p in model.sam_mask_decoder.parameters():
         p.requires_grad = True
 
-    model.image_encoder.eval()
     model.sam_prompt_encoder.eval()
     model.sam_mask_decoder.train()
 
+    params = list(model.sam_mask_decoder.parameters()) 
+    if CHANNELS == 4:
+        params += list(model.image_encoder.trunk.patch_embed.parameters())
+
     optimizer = torch.optim.AdamW(
-        model.sam_mask_decoder.parameters(), lr=LR, weight_decay=WEIGHT_DECAY
+        params, lr=LR, weight_decay=WEIGHT_DECAY
     )
 
     scaler = torch.cuda.amp.GradScaler(enabled=(device == "cuda"))
@@ -159,11 +185,25 @@ def main():
                 mode="nearest",
             )
 
-            sparse, dense = model.sam_prompt_encoder(
-                points=(pts_t, lbls_t),
-                boxes=None,
-                masks=mask_prompt,
-            )
+            # randomly use point prompt, mask prompt, or both
+            if np.random.rand() < 0.33:
+                sparse, dense = model.sam_prompt_encoder(
+                    points=(pts_t, lbls_t),
+                    boxes=None,
+                    masks=None,
+                )
+            elif np.random.rand() < 0.66:
+                sparse, dense = model.sam_prompt_encoder(
+                    points=None,
+                    boxes=None,
+                    masks=mask_prompt,
+                )
+            else:
+                sparse, dense = model.sam_prompt_encoder(
+                    points=(pts_t, lbls_t),
+                    boxes=None,
+                    masks=mask_prompt,
+                )
 
             high_res_features = None
             if model.use_high_res_features_in_sam:

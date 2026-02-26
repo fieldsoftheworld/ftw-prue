@@ -217,15 +217,17 @@ def convert_delineate_anything_output(
         rescaled_masks = []
         for mask in masks:
             # Resize mask to target shape
+            # Use INTER_NEAREST for segmentation masks to avoid subpixel shifts
+            # INTER_LINEAR can introduce spatial offsets
             rescaled_mask = cv2.resize(
                 mask, 
                 (target_shape[1], target_shape[0]),  # cv2 uses (width, height)
-                interpolation=cv2.INTER_LINEAR
+                interpolation=cv2.INTER_NEAREST
             )
             rescaled_masks.append(rescaled_mask)
         masks = np.stack(rescaled_masks, axis=0)
     
-    # Binarize masks
+    # Binarize masks (may already be binary with INTER_NEAREST)
     masks = (masks > 0.5).astype(np.uint8)
     
     # Get confidence scores

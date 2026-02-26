@@ -3,8 +3,8 @@ model:
   variant: "DelineateAnything"  # or "DelineateAnything-S" for smaller/faster model
   
   # Model weights
-  weights: "/weights/delineate_anything_rgb_yolo11x-88ede029.pt" # Update the path where you have weights saved
-  # For small variant: "/weights/delineate_anything_s_rgb_yolo11n-b879d643.pt"
+  weights: "/nfs/hpc/share/fangzha/weights/delineate_anything_rgb_yolo11x-88ede029.pt"
+  # For small variant: "/nfs/hpc/share/fangzha/weights/delineate_anything_s_rgb_yolo11n-b879d643.pt"
 
 # Inference parameters
 inference:

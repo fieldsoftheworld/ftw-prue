@@ -143,73 +143,28 @@ def load_gt_instance_masks_from_dataset(
     return instance_masks, countries_list, country_aoi_list, image_ids
 
 
-def build_country_aoi_mapping(
-    data_dir: str, 
-    countries: List[str], 
-    split: str = "test"
-) -> Dict[Tuple[str, str], int]:
+def extract_country_aoi_from_filename(filename: str) -> Tuple[str, str]:
     """
-    Build a mapping from (country, aoi_id) to list index.
+    Extract (country, aoi_id) from image filename.
+    
+    Matches the FTW dataset structure:
+    - .../country/s2_images/window_a/aoi_id.tif
+    - .../country/s2_images/window_b/aoi_id.tif
+    - .../country/label_masks/instance/aoi_id.tif
+    - .../country/label_masks/semantic_2class/aoi_id.tif
+    - .../country/label_masks/semantic_3class/aoi_id.tif
     
     Args:
-        data_dir: Path to FTW dataset root
-        countries: List of countries to process
-        split: Dataset split (test/val/train)
+        filename: Image path
         
     Returns:
-        Dictionary mapping (country, aoi_id) tuples to list indices
+        Tuple of (country, aoi_id)
     """
-    import geopandas as gpd
-    from pathlib import Path
-    
-    mapping = {}
-    index = 0
-    
-    # Sort countries to ensure deterministic ordering
-    countries_sorted = sorted(countries)
-    
-    for country in countries_sorted:
-        # Load chips file to get AOI IDs for this split
-        chips_file = os.path.join(data_dir, country, f"chips_{country}.parquet")
-        if not os.path.exists(chips_file):
-            print(f"Warning: Chips file not found for {country}")
-            continue
-            
-        chips_gdf = gpd.read_parquet(chips_file)
-        split_chips = chips_gdf[chips_gdf["split"] == split]
-        # Sort AOI IDs to ensure deterministic ordering
-        aoi_ids = sorted(split_chips["aoi_id"].tolist())
-        
-        # Filter AOIs to only those with all required files
-        for aoi_id in aoi_ids:
-            # Check for all required files
-            window_b_fn = Path(os.path.join(data_dir, country, "s2_images/window_b", f"{aoi_id}.tif"))
-            window_a_fn = Path(os.path.join(data_dir, country, "s2_images/window_a", f"{aoi_id}.tif"))
-            masks_2c_fn = Path(os.path.join(data_dir, country, "label_masks/semantic_2class", f"{aoi_id}.tif"))
-            masks_3c_fn = Path(os.path.join(data_dir, country, "label_masks/semantic_3class", f"{aoi_id}.tif"))
-            
-            # Skip AOIs missing any required files
-            if not (
-                window_b_fn.exists()
-                and window_a_fn.exists()
-                and masks_2c_fn.exists()
-                and masks_3c_fn.exists()
-            ):
-                continue
-            
-            # Check semantic mask existence (prefer 2-class, fall back to 3-class)
-            semantic_2_file = os.path.join(data_dir, country, "label_masks", "semantic_2class", f"{aoi_id}.tif")
-            semantic_3_file = os.path.join(data_dir, country, "label_masks", "semantic_3class", f"{aoi_id}.tif")
-            if not (os.path.exists(semantic_2_file) or os.path.exists(semantic_3_file)):
-                continue
-            
-            # Add to mapping
-            # Normalize aoi_id to string for consistency
-            aoi_id_str = str(aoi_id)
-            mapping[(country, aoi_id_str)] = index
-            index += 1
-    
-    return mapping
+    import re
+    match = re.search(r'/([^/]+)/(?:s2_images/(?:window_a|window_b)|label_masks/(?:instance|semantic_2class|semantic_3class))/([^/]+)\.tif$', filename)
+    if match:
+        return match.group(1), match.group(2)
+    return "", ""
 
 
 def load_gt_masks_from_dataset(
@@ -328,52 +283,62 @@ def load_gt_masks_from_dataset(
                     aoi_id_str = str(aoi_id)
                     country_aoi_list.append((country, aoi_id_str))
                     image_ids.append(len(masks) - 1)  # Use index as image_id
-                except Exception as e:
-                    print(f"Error loading mask for {country}/{aoi_id}: {str(e)}")
-                    continue
+            except Exception as e:
+                print(f"Error loading mask for {country}/{aoi_id}: {str(e)}")
+                continue
     
     print(f"Loaded {len(masks)} ground truth masks")
     return masks, countries_list, country_aoi_list, image_ids
 
 
-def match_predictions_by_country_aoi(
+def match_predictions_by_filename(
     pred_detections: List[Detections],
-    pred_mapping: Dict[Tuple[str, str], int],
     country_aoi_list: List[Tuple[str, str]]
 ) -> List[Detections]:
     """
-    Match prediction detections by (country, aoi_id) to canonical ordering.
+    Match prediction detections to GT using image filenames.
     
     Args:
-        pred_detections: List of prediction detections (indexed by pred_mapping)
-        pred_mapping: Mapping from (country, aoi_id) to prediction detection index
-        country_aoi_list: List of (country, aoi_id) tuples for canonical ordering
+        pred_detections: List of prediction detections with image_filename field
+        country_aoi_list: List of (country, aoi_id) tuples for canonical GT ordering
         
     Returns:
         List of matched prediction detections in same order as country_aoi_list
     """
+    # Check if detections have image filenames
+    if not pred_detections or not hasattr(pred_detections[0], 'image_filename') or not pred_detections[0].image_filename:
+        raise ValueError(
+            "Detections must have image_filename field set. "
+            "Please re-run inference with the updated script."
+        )
+    
+    print("Matching predictions to GT using image filenames...")
+    
+    # Build filename-based mapping
+    filename_to_detection = {}
+    for det in pred_detections:
+        if det.image_filename:
+            country, aoi_id = extract_country_aoi_from_filename(det.image_filename)
+            if country and aoi_id:
+                key = (country, aoi_id)
+                filename_to_detection[key] = det
+    
+    # Match predictions to GT order
     matched_pred = []
     missing_pred = 0
     
     for country, aoi_id in country_aoi_list:
         key = (country, aoi_id)
         
-        # Get prediction detection
-        if key in pred_mapping:
-            pred_idx = pred_mapping[key]
-            if pred_idx < len(pred_detections):
-                matched_pred.append(pred_detections[pred_idx])
-            else:
-                print(f"Warning: Pred index {pred_idx} out of range for {country}/{aoi_id}")
-                matched_pred.append(Detections(xyxy=np.empty((0, 4))))
-                missing_pred += 1
+        if key in filename_to_detection:
+            matched_pred.append(filename_to_detection[key])
         else:
             # Prediction not found - use empty detections
             matched_pred.append(Detections(xyxy=np.empty((0, 4))))
             missing_pred += 1
     
     if missing_pred > 0:
-        print(f"Warning: {missing_pred} predictions not found in mapping")
+        print(f"Warning: {missing_pred}/{len(country_aoi_list)} predictions not found in detection file")
     
     return matched_pred
 
@@ -584,7 +549,7 @@ def main():
         type=str,
         nargs="+",
         choices=["pixel", "object", "coco", "all"],
-        default=["object"],
+        default=["all"],
         help="Metrics to compute: pixel (pixel-level), object (object-level), coco (COCO-style), or all"
     )
     
@@ -638,13 +603,6 @@ def main():
     if "all" in args.metrics:
         args.metrics = ["pixel", "object", "coco"]
     
-    # Build mapping for consistent ordering
-    print("Building country/AOI mapping...")
-    mapping = build_country_aoi_mapping(
-        args.data_dir, args.countries, args.split
-    )
-    print(f"  Built mapping for {len(mapping)} samples")
-    
     # Load ground truth semantic masks from dataset (for pixel/object metrics)
     print("Loading ground truth semantic masks from dataset...")
     print("  (Object metrics use semantic masks with connected components)")
@@ -683,26 +641,17 @@ def main():
             print(f"Received: {args.model_detections}")
             sys.exit(1)
     
-    # Load model detections and match to canonical ordering
+    # Load model detections and match to GT ordering using filenames
     model_detections = {}
     for model_name, detections_path in model_detections_paths.items():
-        print(f"Loading detections for {model_name}...")
+        print(f"\nLoading detections for {model_name}...")
         pred_detections = load_detections_from_file(detections_path)
+        print(f"  Loaded {len(pred_detections)} detection objects")
         
-        # Build mapping for predictions
-        print(f"  Building mapping for {model_name}...")
-        pred_mapping = build_country_aoi_mapping(
-            args.data_dir, args.countries, args.split
-        )
-        print(f"  Built mapping for {len(pred_mapping)} predictions")
-        
-        # Match predictions to canonical ordering (same as GT masks)
-        print(f"  Matching predictions to canonical ordering...")
-        matched_pred = match_predictions_by_country_aoi(
-            pred_detections, pred_mapping, country_aoi_list
-        )
+        # Match predictions to GT ordering using image filenames
+        matched_pred = match_predictions_by_filename(pred_detections, country_aoi_list)
         model_detections[model_name] = matched_pred
-        print(f"    Matched {len(matched_pred)} predictions")
+        print(f"  Matched {len(matched_pred)} predictions to GT samples")
         
         # Diagnostic: Check total instances
         total_pred_instances = sum(len(det) for det in matched_pred)

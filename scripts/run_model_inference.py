@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Script to run inference on different models and convert outputs to unified Detections format.
+Script to run inference on different models using registry-based segmenters.
+
+All models are now accessed through the unified model registry, which provides
+a consistent interface across FTW, SAM, DECODE, and DelineateAnything models.
 """
 
 import argparse
@@ -38,9 +41,10 @@ try:
     # Trigger adapter registration by importing models module
     import models  # noqa: F401
     REGISTRY_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     REGISTRY_AVAILABLE = False
-    print("Warning: Model registry not available, falling back to MODEL_RUNNERS")
+    print(f"ERROR: Model registry not available: {e}")
+    print("Please ensure the project is properly installed with registry support.")
 
 
 def _sort_dataset_filenames(ds):
@@ -64,9 +68,13 @@ def _sort_dataset_filenames(ds):
                 filename_dict.get("image_b") or
                 filename_dict.get("image_a") or
                 "")
-        # Path format: .../country/s2_images/window_b/aoi_id.tif
-        # or: .../country/label_masks/.../aoi_id.tif
-        match = re.search(r'/([^/]+)/(?:s2_images/[^/]+|label_masks/[^/]+)/([^/]+)\.tif$', path)
+        # Match FTW dataset structure:
+        # .../country/s2_images/window_a/aoi_id.tif
+        # .../country/s2_images/window_b/aoi_id.tif
+        # .../country/label_masks/instance/aoi_id.tif
+        # .../country/label_masks/semantic_2class/aoi_id.tif
+        # .../country/label_masks/semantic_3class/aoi_id.tif
+        match = re.search(r'/([^/]+)/(?:s2_images/(?:window_a|window_b)|label_masks/(?:instance|semantic_2class|semantic_3class))/([^/]+)\.tif$', path)
         if match:
             country = match.group(1)
             aoi_id_str = match.group(2)
@@ -84,733 +92,6 @@ def _sort_dataset_filenames(ds):
     # Handle DECODE dataset (file_list attribute)
     elif hasattr(ds, 'file_list') and ds.file_list:
         ds.file_list = sorted(ds.file_list, key=get_sort_key)
-
-def run_ftw_inference(
-    data_dir: str,
-    model_weights: str,
-    output_dir: str,
-    **kwargs
-) -> List[Detections]:
-    """
-    Run inference using FTW baseline model.
-    
-    ⚠️  DEPRECATED: This function is deprecated in favor of the registry-based
-    segmenter framework. Use `run_registry_inference()` with `--use_registry` flag instead.
-    
-    This function is kept for backward compatibility and will be removed in a future version.
-    
-    Args:
-        data_dir: Directory containing the dataset
-        model_weights: Path to model checkpoint
-        output_dir: Directory to save outputs
-        
-    Returns:
-        List of Detections objects
-    """
-    print("Running FTW baseline inference...")
-    
-    # Import FTW components
-    from ftw_tools.training.datasets import FTW
-    from ftw_tools.training.datamodules import preprocess
-    from ftw_tools.training.trainers import CustomSemanticSegmentationTask
-    
-    # Load model
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    trainer = CustomSemanticSegmentationTask.load_from_checkpoint(model_weights, map_location="cpu")
-    model = trainer.model.eval().to(device)
-    
-    # Sort countries to ensure consistent ordering
-    countries = kwargs.get("countries", ["belgium"])
-    if isinstance(countries, str):
-        countries = [countries]
-    countries_sorted = sorted(countries)
-    
-    # Create dataset with standard "stacked" temporal option (8-channel RGBNRGBN)
-    ds = FTW(
-        root=data_dir,
-        countries=countries_sorted,
-        split=kwargs.get("split", "test"),
-        transforms=preprocess,
-        load_boundaries=False,
-        temporal_options="stacked",  # Force stacked option for consistency
-    )
-    
-    # Sort filenames to ensure consistent ordering with evaluation
-    _sort_dataset_filenames(ds)
-    
-    dl = DataLoader(ds, batch_size=kwargs.get("batch_size", 16), shuffle=False, num_workers=4)
-    
-    detections_list = []
-    
-    # Store logits if requested
-    logits_list = [] if kwargs.get("save_logits", False) else None
-    
-    # Get total number of samples for progress bar
-    total_samples = len(ds)
-    batch_size = kwargs.get("batch_size", 16)
-    total_batches = len(dl)
-    
-    print(f"Processing {total_samples} samples in {total_batches} batches (batch_size={batch_size})")
-    
-    with torch.inference_mode():
-        # Progress bar shows batches, but we'll track samples in description
-        pbar = tqdm(dl, desc=f"Processing FTW model (0/{total_samples} samples)", total=total_batches, unit="batch")
-        for batch in pbar:
-            images = batch["image"].to(device)
-            
-            # Get raw model outputs (before argmax)
-            raw_outputs = model(images)
-            
-            # Compute softmax probabilities for confidence, and argmax for instance extraction
-            if isinstance(raw_outputs, torch.Tensor):
-                # raw logits -> probs
-                probs = torch.softmax(raw_outputs, dim=1)
-                argmax_outputs = torch.argmax(raw_outputs, dim=1).cpu().numpy().astype(np.uint8)
-                probs_np = probs.detach().cpu().numpy()  # (B, C, H, W)
-            else:
-                # If outputs are numpy probabilities already
-                # Ensure shape (B, C, H, W)
-                if raw_outputs.ndim == 3:
-                    probs_np = np.expand_dims(raw_outputs, 0)
-                else:
-                    probs_np = raw_outputs
-                argmax_outputs = np.argmax(probs_np, axis=1).astype(np.uint8)
-            
-            # Process each sample in the batch
-            for i in range(argmax_outputs.shape[0]):
-                # Create binary field mask from argmax output (matches paper approach)
-                # FTW 3-class system: 0=background, 1=ag_field, 2=boundary
-                field_mask = (argmax_outputs[i] == 1).astype(np.uint8)  # Only class 1 (ag_field)
-                
-                # Create Detections directly from binary mask (matches paper's approach)
-                # Use the same polygonization method as our fixed Detections.from_semantic_logits
-                import rasterio.features
-                import shapely.geometry
-                
-                masks = []
-                xyxys = []
-                confidences = []
-                class_ids = []
-                
-                # Extract shapes using rasterio (matches paper's approach exactly)
-                for geom, val in rasterio.features.shapes(field_mask):
-                    if val == 1:  # Only process field pixels
-                        shapely_geom = shapely.geometry.shape(geom)
-                        
-                        # Skip small areas
-                        if shapely_geom.area < kwargs.get("min_area", 0):
-                            continue
-                        
-                        # Create mask for this shape
-                        mask = rasterio.features.rasterize(
-                            [shapely_geom], 
-                            out_shape=field_mask.shape,
-                            fill=0,
-                            default_value=1,
-                            dtype=np.uint8
-                        )
-                        masks.append(mask)
-                        
-                        # Get bounding box from shapely geometry
-                        bounds = shapely_geom.bounds
-                        xyxys.append([bounds[0], bounds[1], bounds[2], bounds[3]])
-                        
-                        # Compute per-instance confidence as mean probability of field class
-                        # Use softmax probabilities computed above
-                        try:
-                            field_probs = probs_np[i, 1]  # class 1 = ag_field
-                            inst_conf = float(field_probs[mask == 1].mean()) if np.any(mask == 1) else 0.0
-                            # Clamp to [0, 1]
-                            if inst_conf < 0.0:
-                                inst_conf = 0.0
-                            if inst_conf > 1.0:
-                                inst_conf = 1.0
-                            confidences.append(inst_conf)
-                        except Exception:
-                            # Fallback if probabilities unavailable
-                            confidences.append(1.0)
-                
-                detections = Detections(
-                    xyxy=np.array(xyxys) if xyxys else np.empty((0, 4)),
-                    mask=np.array(masks) if masks else None,
-                    confidence=np.array(confidences) if confidences else None,
-                    class_id=np.array(class_ids) if class_ids else None
-                )
-
-                detections_list.append(detections)
-                
-                # Update progress bar to show sample count
-                pbar.set_description(f"Processing FTW model ({len(detections_list)}/{total_samples} samples)")
-                
-                # Store raw logits if requested (store the argmax output as "logits")
-                if logits_list is not None:
-                    # Create a dummy SemanticOutput for compatibility
-                    from intermediate_formats import SemanticOutput
-                    # Convert argmax back to one-hot for compatibility
-                    one_hot = np.zeros((3, field_mask.shape[0], field_mask.shape[1]))
-                    one_hot[0] = (argmax_outputs[i] == 0).astype(np.float32)  # background
-                    one_hot[1] = (argmax_outputs[i] == 1).astype(np.float32)  # field
-                    one_hot[2] = (argmax_outputs[i] == 2).astype(np.float32)  # boundary
-                    semantic_output = SemanticOutput(logits=one_hot, image_id=i)
-                    logits_list.append(semantic_output)
-    
-    if logits_list is not None:
-        return detections_list, logits_list
-    return detections_list
-
-
-def run_decode_inference(
-    data_dir: str,
-    model_weights: str,
-    output_dir: str,
-    **kwargs
-) -> List[Detections]:
-    """
-    Run inference using DECODE model.
-    
-    ⚠️  DEPRECATED: This function is deprecated in favor of the registry-based
-    segmenter framework. Use `run_registry_inference()` with `--use_registry` flag instead.
-    
-    This function is kept for backward compatibility and will be removed in a future version.
-    
-    Args:
-        data_dir: Directory containing the dataset
-        model_weights: Path to model weights
-        output_dir: Directory to save outputs
-        
-    Returns:
-        List of Detections objects
-    """
-    print("Running DECODE inference...")
-    
-    # Import DECODE components using the same approach as our working test script
-    import sys
-    import yaml
-    decode_path = Path(__file__).parent.parent / "src" / "models" / "decode"
-    sys.path.insert(0, str(decode_path))
-    
-    from fractal_resunet.models.semanticsegmentation.FracTAL_ResUNet import FracTAL_ResUNet_cmtsk as decode_model
-    from data_module import FTWMultiCountryDataset
-    
-    # Load config if provided
-    config_file = kwargs.get("config_file")
-    if config_file and os.path.exists(config_file):
-        with open(config_file, "r") as f:
-            cfg = yaml.safe_load(f)
-    else:
-        # Use default config values
-        cfg = {
-            "data": {
-                "in_channels": 8,
-                "n_classes": 2,
-                "temporal_option": "stacked",
-                "crop_size": [256, 256]
-            },
-            "model": {
-                "nfilters_init": 32,
-                "depth": 6,
-                "ftdepth": 5,
-                "psp_depth": 4,
-                "norm_type": "GroupNorm",
-                "norm_groups": 4,
-                "nheads_start": 4
-            }
-        }
-    
-    # Load model
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = decode_model(
-        nfilters_init=cfg["model"]["nfilters_init"],
-        NClasses=cfg["data"]["n_classes"],
-        depth=cfg["model"]["depth"],
-        ftdepth=cfg["model"]["ftdepth"],
-        psp_depth=cfg["model"]["psp_depth"],
-        norm_type=cfg["model"]["norm_type"],
-        norm_groups=cfg["model"]["norm_groups"],
-        nheads_start=cfg["model"]["nheads_start"],
-        in_channels=cfg["data"]["in_channels"],
-    ).to(device)
-    
-    # Load weights
-    checkpoint = torch.load(model_weights, map_location=device)
-    model.load_state_dict(checkpoint)
-    model.eval()
-    
-    # Create dataset using the same approach as our working test script
-    countries = kwargs.get("countries", ["belgium"])
-    if isinstance(countries, str):
-        countries = [countries]
-    
-    # Sort countries to ensure consistent ordering (matches GT script)
-    countries_sorted = sorted(countries)
-    
-    dataset = FTWMultiCountryDataset(
-        root_dir=data_dir,
-        countries=countries_sorted,
-        split=kwargs.get("split", "test"),
-        load_boundaries=False,
-        temporal_option=cfg["data"]["temporal_option"],
-        crop_size=tuple(cfg["data"]["crop_size"]),
-        num_samples=kwargs.get("num_samples", -1),
-    )
-    
-    # Sort file_list to ensure consistent ordering with evaluation
-    _sort_dataset_filenames(dataset)
-    
-    dataloader = DataLoader(
-        dataset,
-        batch_size=kwargs.get("batch_size", 1),
-        shuffle=False,
-        num_workers=kwargs.get("num_workers", 0),
-    )
-    
-    detections_list = []
-    
-    with torch.inference_mode():
-        for batch_idx, batch in enumerate(tqdm(dataloader, desc="Processing DECODE model")):
-            # Extract batch components (same as our working test script)
-            if len(batch) == 6:  # (win_a, win_b, images, mask, boundary, distance)
-                win_a, win_b, images, mask, boundary, distance = batch
-            else:
-                images, mask = batch[:2]
-                win_a, win_b = None, None
-            
-            # Move to device
-            images = images.to(device)
-            
-            # Run inference
-            preds = model(images)
-            
-            # DECODE returns a tuple: (seg_logits, boundary_logits, distance)
-            seg_logits, boundary_logits, distance = preds
-            
-            # Process each sample in the batch
-            for i in range(images.shape[0]):
-                # Create the 3-tuple output for convert_decode_output
-                sample_output = (
-                    seg_logits[i:i+1],  # Keep batch dimension for consistency
-                    boundary_logits[i:i+1],
-                    distance[i:i+1]
-                )
-                
-                # Convert to SemanticOutput using our working converter
-                semantic_output = convert_decode_output(
-                    sample_output,
-                    image_id=batch_idx * dataloader.batch_size + i
-                )
-                
-                # Convert to Detections using our working converter
-                detections = semantic_output.to_detections(
-                    field_class_id=1,  # Field class is index 1
-                    min_area=kwargs.get("min_area", 0)
-                )
-                detections_list.append(detections)
-    
-    return detections_list
-
-
-def run_sam_inference(
-    data_dir: str,
-    model_weights: str,
-    output_dir: str,
-    **kwargs
-) -> Dict[str, List[Detections]]:
-    """
-    Run inference using SAM model via AutomaticMaskGenerator and convert to Detections.
-    
-    ⚠️  DEPRECATED: This function is deprecated in favor of the registry-based
-    segmenter framework. Use `run_registry_inference()` with `--use_registry` flag instead.
-    
-    Note: This legacy function returns a per-country dict, while the registry path returns
-    a flat list. The saving logic handles both formats.
-    
-    This function is kept for backward compatibility and will be removed in a future version.
-    
-    Uses custom SAM setup (monkey-patching, custom registry, etc.)
-    to match sam_controller.py behavior.
-
-    Returns a mapping of country -> list[Detections] to enable per-country saving.
-    """
-    print("Running SAM inference...")
-    
-    from pathlib import Path as _Path
-    import sys as _sys
-    sam_path = _Path(__file__).parent.parent / "src" / "models" / "sam"
-    if str(sam_path) not in _sys.path:
-        _sys.path.insert(0, str(sam_path))
-    
-    # Apply monkey-patching first (same as sam_controller.py)
-    import segment_anything.modeling.image_encoder
-    from models.sam.new_image_encoder import newImageEncoderViT
-    segment_anything.modeling.image_encoder.ImageEncoderViT = newImageEncoderViT
-
-    import segment_anything.predictor
-    from models.sam.new_sam_predictor import newSamPredictor
-    segment_anything.predictor.SamPredictor = newSamPredictor
-
-    # Use our custom registry and automatic mask generator (same as sam_controller.py)
-    from models.sam.build_sam import sam_model_registry
-    from models.sam.new_automatic_mask_generator import SamAutomaticMaskGenerator
-    from segment_anything.modeling.image_encoder import PatchEmbed
-    from segment_anything.modeling.mask_decoder import MaskDecoder
-    from models.sam.sam_mask_decoder_change import new_predict_masks
-    from models.sam.sam_predictor_set_image_change import new_set_image
-
-    # Load config if provided to get model parameters
-    config_file = kwargs.get("config_file")
-    if config_file and os.path.exists(config_file):
-        import yaml
-        with open(config_file, 'r') as f:
-            config = yaml.safe_load(f)
-        in_chans = config.get('sam_model', {}).get('in_chans', 3)
-        change_chan_num = config.get('sam_model', {}).get('change_chan_num', False)
-        use_img_proj = config.get('img_proj', {}).get('use_img_proj', False)
-    else:
-        # Defaults (can be overridden by kwargs)
-        in_chans = kwargs.get('in_chans', 3)
-        change_chan_num = kwargs.get('change_chan_num', False)
-        use_img_proj = kwargs.get('use_img_proj', False)
-
-    # Load model (always use vit_h for fine-tuned checkpoints; same as sam_controller.py)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Get model_type from kwargs or config (default to vit_h for fine-tuned checkpoints)
-    # Note: argparse will set this to the default ('vit_h') if not provided
-    model_type = kwargs.get("sam_model_type", "vit_h")  # Default to vit_h (not vit_b)
-    
-    # If model_type was explicitly passed as empty string or None, reset to default
-    if not model_type or model_type == "":
-        model_type = "vit_h"
-    
-    # Allow config file to override (but usually not set in config)
-    if config_file and os.path.exists(config_file):
-        config_model_type = config.get('sam_model', {}).get('model_type')
-        if config_model_type:
-            model_type = config_model_type
-    
-    print(f"Loading SAM {model_type} checkpoint from {model_weights} (in_chans={in_chans}, change_chan_num={change_chan_num})...", flush=True)
-
-    # Determine build channel count by inspecting checkpoint when possible
-    detected_ckpt_in_chans = None
-    try:
-        ckpt = torch.load(model_weights, map_location="cpu")
-        state_dict = ckpt.get("state_dict", ckpt)
-        # Find the patch_embed proj weight key robustly
-        proj_w_key = None
-        for k in state_dict.keys():
-            if k.endswith("patch_embed.proj.weight"):
-                proj_w_key = k
-                break
-        if proj_w_key is not None:
-            detected_ckpt_in_chans = int(state_dict[proj_w_key].shape[1])
-            print(f"  Detected checkpoint input channels: {detected_ckpt_in_chans} via {proj_w_key}", flush=True)
-    except Exception as _e:
-        print(f"  Warning: could not inspect checkpoint for in_chans ({_e}); using heuristics", flush=True)
-
-    if detected_ckpt_in_chans in (3, 8):
-        build_in_chans = detected_ckpt_in_chans
-        print(f"  Building with detected checkpoint in_chans={build_in_chans}", flush=True)
-    else:
-        # Heuristic fallback
-        if change_chan_num:
-            build_in_chans = 3
-            print(f"  Building with in_chans={build_in_chans} (change_chan_num=True)", flush=True)
-        elif in_chans == 8:
-            build_in_chans = 3
-            print(f"  Heuristic: in_chans=8 specified; building with in_chans={build_in_chans} first", flush=True)
-        else:
-            build_in_chans = in_chans
-            print(f"  Building with in_chans={build_in_chans} (from config)", flush=True)
-    
-    sam = sam_model_registry[model_type](in_chans=build_in_chans, checkpoint=model_weights)
-    
-    # Apply patch_embed replacement only if runtime input channels differ from build/checkpoint channels
-    if in_chans != build_in_chans and in_chans == 8:
-        # Get patch_size - try from attribute (monkey-patched newImageEncoderViT) or from conv layer
-        if hasattr(sam.image_encoder, 'patch_size'):
-            patch_size = sam.image_encoder.patch_size
-        else:
-            # Fallback: get from patch_embed.proj.kernel_size (should be 16 for SAM)
-            # Conv2d kernel_size is a tuple, get first element
-            patch_size = sam.image_encoder.patch_embed.proj.kernel_size[0]
-        
-        # Get embed_dim - try from attribute or from patch_embed
-        if hasattr(sam.image_encoder, 'embed_dim'):
-            embed_dim = sam.image_encoder.embed_dim
-        else:
-            # Fallback: get from patch_embed.proj.out_channels
-            embed_dim = sam.image_encoder.patch_embed.proj.out_channels
-        
-        sam.image_encoder.patch_embed = PatchEmbed(
-            kernel_size=(patch_size, patch_size),
-            stride=(patch_size, patch_size),
-            in_chans=8,  # Hardcoded to 8 as in sam_controller.py line 97
-            embed_dim=embed_dim,
-        )
-        print(f"Applied patch_embed replacement for 8-channel input (patch_size={patch_size}, embed_dim={embed_dim})")
-
-    # Register pixel mean/std for 8-channel input (same as sam_controller.py lines 108-114)
-    if in_chans == 8:
-        pixel_mean = 2*[123.675, 116.28, 103.53, 123.675]
-        pixel_std = 2*[58.395, 57.12, 57.375, 58.395]
-        sam.register_buffer("pixel_mean", torch.Tensor(pixel_mean).view(-1, 1, 1), False)
-        sam.register_buffer("pixel_std", torch.Tensor(pixel_std).view(-1, 1, 1), False)
-        print("Registered pixel mean/std for 8-channel input")
-
-    sam.to(device=device)
-    sam.eval()
-
-    # Create mask generator with reasonable defaults
-    generator = SamAutomaticMaskGenerator(
-        sam,
-        pred_iou_thresh=kwargs.get("pred_iou_thresh", kwargs.get("iou_thresh", 0.88)),
-        stability_score_thresh=kwargs.get("stability_score_thresh", kwargs.get("stability_thresh", 0.95)),
-        points_per_side=kwargs.get("points_per_side", 32),
-        points_per_batch=kwargs.get("points_per_batch", 64),
-        box_nms_thresh=kwargs.get("box_nms_thresh", 0.7),
-        crop_n_layers=kwargs.get("crop_n_layers", 0),
-        crop_nms_thresh=kwargs.get("crop_nms_thresh", 0.7),
-        crop_overlap_ratio=kwargs.get("crop_overlap_ratio", 512/1500),
-        min_mask_region_area=kwargs.get("min_mask_region_area", 0),
-    )
-    
-    # Apply monkey-patching to mask generator (same as sam_controller.py lines 598-599)
-    generator.predictor.model.mask_decoder.predict_masks = new_predict_masks.__get__(
-        generator.predictor.model.mask_decoder, MaskDecoder
-    )
-    generator.predictor.set_image = new_set_image.__get__(generator.predictor, type(generator.predictor))
-
-    # Dataset from ftw_tools for consistency
-    from ftw_tools.training.datasets import FTW
-    from ftw_tools.training.datamodules import preprocess
-    
-    countries = kwargs.get("countries", ["belgium"])
-    if isinstance(countries, str):
-        countries = [countries]
-
-    split = kwargs.get("split", "test")
-    temporal_opt = kwargs.get("temporal_options", "stacked")
-
-    per_country_dets: Dict[str, List[Detections]] = {}
-
-    # Sort countries to ensure consistent ordering (matches GT script)
-    countries_sorted = sorted(countries)
-
-    for country in countries_sorted:
-        print(f"Processing country: {country}")
-        ds = FTW(
-            root=data_dir,
-            countries=[country],
-            split=split,
-            transforms=preprocess,
-            load_boundaries=False,
-            temporal_options=temporal_opt,
-        )
-        
-        # Sort filenames to ensure consistent ordering with evaluation
-        _sort_dataset_filenames(ds)
-    
-        # Handle img_proj if enabled (same as sam_controller.py)
-        img_proj_model = None
-        if use_img_proj:
-            if config_file and os.path.exists(config_file):
-                img_model_params = config.get('img_proj', {}).get('img_model_params', [8, 3, 64, 4])
-                img_ckpt = config.get('img_proj', {}).get('img_ckpt', False)
-            else:
-                img_model_params = kwargs.get('img_model_params', [8, 3, 64, 4])
-                img_ckpt = kwargs.get('img_ckpt', False)
-            
-            from image_mlp import PixelMLP
-            img_proj_model = PixelMLP(*img_model_params)
-            if img_ckpt and img_ckpt is not False:
-                ckpt = torch.load(img_ckpt)
-                img_proj_model.load_state_dict(ckpt['state_dict'])
-            img_proj_model.to(device)
-            img_proj_model.eval()
-
-        detections_list: List[Detections] = []
-        for idx in tqdm(range(len(ds)), desc=f"SAM {country}"):
-            sample = ds[idx]
-            image = sample["image"]  # (C, H, W), typically 8-ch for stacked
-
-            # Prepare image as tensor (1, C, H, W) on device, same as sam_controller.py lines 615-619
-            if isinstance(image, torch.Tensor):
-                image_tensor = image.to(device)
-            else:
-                image_tensor = torch.from_numpy(image).to(device)
-            
-            # Apply img_proj if enabled (same as sam_controller.py line 617)
-            if use_img_proj:
-                image_tensor = img_proj_model(image_tensor.unsqueeze(0))
-            else:
-                # Use model_in_chans channels (same as sam_controller.py line 619)
-                image_tensor = image_tensor[:in_chans].unsqueeze(0)  # (1, C, H, W)
-
-            # Generate masks (pass tensor directly, same as sam_controller.py line 622)
-            outputs = generator.generate(image_tensor)
-        
-            # Convert via unified converters → InstanceOutput → Detections
-            instance_output = convert_sam_output(outputs, image_id=idx)
-            detections = instance_output.to_detections(
-                min_area=kwargs.get("min_area", 0),
-                score_threshold=kwargs.get("confidence_threshold", 0.0),
-            )
-
-            detections_list.append(detections)
-    
-        per_country_dets[country] = detections_list
-
-    return per_country_dets
-
-
-def run_delineate_anything_inference(
-    data_dir: str,
-    model_weights: str,
-    output_dir: str,
-    **kwargs
-) -> List[Detections]:
-    """
-    Run inference using DelineateAnything model.
-    
-    ⚠️  NOTE: This function is NOT yet deprecated because DelineateAnything does not
-    have a registry-based segmenter implementation yet. Once a registry segmenter is
-    created for DelineateAnything, this function should be deprecated.
-    
-    Args:
-        data_dir: Directory containing the dataset
-        model_weights: Path to model weights (or model name from registry)
-        output_dir: Directory to save outputs
-        
-    Returns:
-        List of Detections objects
-    """
-    print("Running DelineateAnything inference...")
-    
-    # Import components
-    from ftw_tools.training.datasets import FTW
-    
-    # Determine device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    # Determine model variant
-    # Priority: 1) explicit model_variant, 2) infer from model_weights string
-    model_variant = kwargs.get("delany_model_variant", None)
-    
-    if model_variant is None:
-        # Auto-detect from model_weights
-        if model_weights in ["DelineateAnything", "DelineateAnything-S"]:
-            model_variant = model_weights  # Registry name
-        elif "small" in model_weights.lower() or "-s" in model_weights.lower():
-            model_variant = "DelineateAnything-S"
-        else:
-            model_variant = "DelineateAnything"  # Default to full model
-    
-    print(f"Using model variant: {model_variant}")
-    
-    # If model_weights is a registry name, let DelineateAnything handle download
-    # Otherwise, check if local path exists
-    if model_weights not in ["DelineateAnything", "DelineateAnything-S"]:
-        if not os.path.exists(model_weights):
-            print(f"Warning: Model weights not found at {model_weights}, will try downloading from registry")
-            # Override to use registry
-            model_weights = model_variant
-    
-    # Initialize DelineateAnything model
-    # Use confidence_threshold for both model and post-filtering (no double filtering)
-    # For DelineateAnything, default should be 0.05 (YOLO default), not 0.5
-    conf_thresh = kwargs.get("confidence_threshold", 0.5)
-    if conf_thresh == 0.5:  # User didn't specify, use DelineateAnything default
-        conf_thresh = 0.05
-        print(f"Using DelineateAnything default confidence threshold: {conf_thresh}")
-    
-    # Patch the checkpoints dict to use local weights if provided
-    from ftw_tools.inference.models import DelineateAnything
-    if model_weights not in ["DelineateAnything", "DelineateAnything-S"]:
-        # User provided local path - override the registry
-        original_checkpoints = DelineateAnything.checkpoints.copy()
-        DelineateAnything.checkpoints[model_variant] = model_weights
-        print(f"Using local weights: {model_weights}")
-    
-    model = DelineateAnything(
-        model=model_variant,
-        patch_size=kwargs.get("patch_size", 256),
-        resize_factor=kwargs.get("resize_factor", 2),
-        max_detections=kwargs.get("max_detections", 100),
-        iou_threshold=kwargs.get("iou_threshold", 0.3),
-        conf_threshold=conf_thresh,  # Use consistent threshold
-        device=device,
-    )
-    
-    # Restore original checkpoints if we modified them
-    if model_weights not in ["DelineateAnything", "DelineateAnything-S"]:
-        DelineateAnything.checkpoints = original_checkpoints
-    
-    # Create dataset - DelineateAnything uses RGB only
-    # Force single window if user didn't explicitly specify (stacked doesn't make sense for RGB-only model)
-    temporal_opt = kwargs.get("temporal_options", "stacked")
-    if temporal_opt == "stacked":
-        temporal_opt = "windowA"  # Override to single window for RGB model
-        print(f"DelineateAnything requires single window - using 'windowA' instead of 'stacked'")
-    
-    # Sort countries to ensure consistent ordering (matches GT script)
-    countries = kwargs.get("countries", ["belgium"])
-    if isinstance(countries, str):
-        countries = [countries]
-    countries_sorted = sorted(countries)
-    
-    ds = FTW(
-        root=data_dir,
-        countries=countries_sorted,
-        split=kwargs.get("split", "test"),
-        transforms=None,  # DelineateAnything handles normalization internally
-        load_boundaries=False,
-        temporal_options=temporal_opt,  # Single window (4ch RGBN), model extracts RGB
-    )
-    
-    # Sort filenames to ensure consistent ordering with evaluation
-    _sort_dataset_filenames(ds)
-    
-    detections_list = []
-    
-    # Store logits if requested
-    logits_list = [] if kwargs.get("save_logits", False) else None
-    
-    # Process images individually (DelineateAnything handles batching internally via YOLO)
-    for i in tqdm(range(len(ds)), desc="Processing DelineateAnything"):
-        sample = ds[i]
-        image = sample["image"]  # Shape: (C, H, W)
-        
-        # Ensure image is a torch tensor
-        if not isinstance(image, torch.Tensor):
-            image = torch.from_numpy(image)
-        
-        # Run inference - returns list of Results
-        results = model(image.unsqueeze(0))  # Add batch dimension
-        
-        # Extract first result (single image)
-        result = results[0] if isinstance(results, list) else results
-        
-        # Convert to InstanceOutput using converter
-        instance_output = convert_delineate_anything_output(
-            result,
-            image_id=i
-        )
-        
-        # Store raw outputs if requested
-        if logits_list is not None:
-            logits_list.append(instance_output)
-        
-        # Convert to Detections (no additional score filtering - already done by YOLO)
-        detections = instance_output.to_detections(
-            min_area=kwargs.get("min_area", 0),
-            score_threshold=0.0  # Don't filter again - model already applied conf_threshold
-        )
-        
-        detections_list.append(detections)
-    
-    if logits_list is not None:
-        return detections_list, logits_list
-    return detections_list
 
 
 def run_registry_inference(
@@ -845,6 +126,54 @@ def run_registry_inference(
     elif model_name == "decode":
         if kwargs.get("config_file"):
             segmenter_kwargs["config"] = kwargs["config_file"]
+    elif model_name in ["delineate_anything", "da"]:
+        # Load DA config to get model-specific defaults
+        import yaml
+        config_file = kwargs.get("config_file")
+        if not config_file:
+            # Use default config
+            config_file = Path(__file__).parent.parent / "configs" / "delineate_anything" / "default.yaml"
+        
+        # Load config (either user-provided or default)
+        if Path(config_file).exists():
+            with open(config_file, "r") as f:
+                config = yaml.safe_load(f)
+                # Extract inference parameters from config (only if not provided by user)
+                if "inference" in config:
+                    inference_config = config["inference"]
+                    
+                    # Apply config values only if user didn't provide them (CLI > config > defaults)
+                    if kwargs.get("confidence_threshold") is None and "confidence_threshold" in inference_config:
+                        kwargs["confidence_threshold"] = inference_config["confidence_threshold"]
+                        print(f"Using confidence_threshold from config: {kwargs['confidence_threshold']}")
+                    
+                    if kwargs.get("iou_threshold") is None and "iou_threshold" in inference_config:
+                        kwargs["iou_threshold"] = inference_config["iou_threshold"]
+                        print(f"Using iou_threshold from config: {kwargs['iou_threshold']}")
+                    
+                    if kwargs.get("max_detections") is None and "max_detections" in inference_config:
+                        kwargs["max_detections"] = inference_config["max_detections"]
+                        print(f"Using max_detections from config: {kwargs['max_detections']}")
+                    
+                    if kwargs.get("patch_size") is None and "patch_size" in inference_config:
+                        kwargs["patch_size"] = inference_config["patch_size"]
+                        print(f"Using patch_size from config: {kwargs['patch_size']}")
+                    
+                    if kwargs.get("resize_factor") is None and "resize_factor" in inference_config:
+                        kwargs["resize_factor"] = inference_config["resize_factor"]
+                        print(f"Using resize_factor from config: {kwargs['resize_factor']}")
+        else:
+            print(f"Warning: Config file not found: {config_file}")
+        
+        # Apply hardcoded defaults for any remaining None values
+        if kwargs.get("patch_size") is None:
+            kwargs["patch_size"] = 256
+        if kwargs.get("resize_factor") is None:
+            kwargs["resize_factor"] = 2
+        if kwargs.get("max_detections") is None:
+            kwargs["max_detections"] = 100
+        if kwargs.get("iou_threshold") is None:
+            kwargs["iou_threshold"] = 0.3
     
     # Create segmenter
     segmenter = create_segmenter(model_name, **segmenter_kwargs)
@@ -858,14 +187,31 @@ def run_registry_inference(
         countries = [countries]
     countries_sorted = sorted(countries)
     
+    # Determine temporal_options based on model
+    # FTW/SAM/DECODE need stacked (8 channels), DA needs single window (4 channels)
+    if "temporal_options" in kwargs and kwargs["temporal_options"] is not None:
+        temporal_options = kwargs["temporal_options"]
+        print(f"Using user-specified temporal_options: {temporal_options}")
+    else:
+        # Auto-select based on model
+        if model_name in ["ftw", "sam", "decode"]:
+            temporal_options = "stacked"  # 8 channels (windowB + windowA)
+        elif model_name in ["delineate_anything", "da"]:
+            temporal_options = "windowA"  # 4 channels (RGBN), extract RGB
+        else:
+            temporal_options = "stacked"  # Default
+        print(f"Auto-selected temporal_options: {temporal_options} (model: {model_name})")
+    
     # Create dataset
+    # Note: SAM and DA handle their own preprocessing/normalization internally
+    use_transforms = None if model_name in ["sam", "delineate_anything", "da"] else preprocess
     ds = FTW(
         root=data_dir,
         countries=countries_sorted,
         split=kwargs.get("split", "test"),
-        transforms=preprocess if model_name != "sam" else None,  # SAM handles preprocessing differently
+        transforms=use_transforms,
         load_boundaries=False,
-        temporal_options=kwargs.get("temporal_options", "stacked") if model_name in ["ftw", "decode"] else "stacked",
+        temporal_options=temporal_options,
     )
     
     # Sort filenames
@@ -878,7 +224,19 @@ def run_registry_inference(
     detections_list = []
     logits_list = [] if kwargs.get("save_logits", False) else None
     
+    # Set default confidence threshold if not set (after config loading)
+    if kwargs.get("confidence_threshold") is None:
+        kwargs["confidence_threshold"] = 0.5  # Default for non-DA models
+    
+    # Get filenames from dataset for tracking
+    filenames = None
+    if hasattr(ds, 'filenames') and ds.filenames:
+        filenames = ds.filenames
+    elif hasattr(ds, 'file_list') and ds.file_list:
+        filenames = ds.file_list
+    
     # Run inference
+    sample_idx = 0
     with torch.inference_mode():
         for batch_idx, batch in enumerate(tqdm(dataloader, desc=f"Processing {model_name} model")):
             # Extract images from batch
@@ -907,44 +265,51 @@ def run_registry_inference(
                 elif isinstance(output, InstanceOutput):
                     detections = output.to_detections(
                         min_area=kwargs.get("min_area", 0),
-                        score_threshold=kwargs.get("confidence_threshold", 0.5)
+                        score_threshold=kwargs["confidence_threshold"]
                     )
                 else:
                     raise ValueError(f"Unexpected output type: {type(output)}")
                 
+                # Store image filename if available
+                if filenames is not None and sample_idx < len(filenames):
+                    filename_dict = filenames[sample_idx]
+                    # Extract filename based on temporal_options to match what was actually used
+                    if temporal_options == "windowA":
+                        image_path = filename_dict.get("window_a") or ""
+                    elif temporal_options == "windowB":
+                        image_path = filename_dict.get("window_b") or ""
+                    elif temporal_options == "stacked":
+                        # For stacked, prefer windowB as primary
+                        image_path = filename_dict.get("window_b") or filename_dict.get("window_a") or ""
+                    else:
+                        # Fallback: try various keys
+                        image_path = (filename_dict.get("window_b") or 
+                                      filename_dict.get("window_a") or 
+                                      filename_dict.get("mask") or 
+                                      filename_dict.get("image_b") or
+                                      filename_dict.get("image_a") or
+                                      "")
+                    detections.image_filename = image_path
+                
                 detections_list.append(detections)
+                sample_idx += 1
     
     if logits_list is not None:
         return detections_list, logits_list
     return detections_list
 
 
-# Model registry
-# ⚠️  DEPRECATED: This dictionary maps to legacy inference functions.
-# Once registry-based inference is fully verified, these functions will be removed.
-# Use `run_registry_inference()` with `--use_registry` flag instead.
-MODEL_RUNNERS = {
-    "ftw": run_ftw_inference,
-    "ftw-cli": run_ftw_inference,
-    "decode": run_decode_inference,
-    "sam": run_sam_inference,
-    "delineate_anything": run_delineate_anything_inference,
-    "da": run_delineate_anything_inference
-}
-
-
 def main():
     parser = argparse.ArgumentParser(
-        description="Run model inference and convert to unified Detections format",
+        description="Run model inference using registry-based segmenters and convert to unified Detections format",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
-    # Required arguments
-    model_choices = list(MODEL_RUNNERS.keys())
+    # Required arguments - use only registry models
     if REGISTRY_AVAILABLE:
-        # Add registry models to choices
-        registry_models = list(available_models().keys())
-        model_choices = list(set(model_choices + registry_models))
+        model_choices = list(available_models().keys())
+    else:
+        raise RuntimeError("Model registry not available - please ensure the registry module is properly installed")
     
     parser.add_argument(
         "--model", 
@@ -952,12 +317,6 @@ def main():
         required=True,
         choices=model_choices,
         help="Model type to run inference with"
-    )
-    parser.add_argument(
-        "--use_registry",
-        action="store_true",
-        default=False,
-        help="Use new registry-based segmenters instead of legacy MODEL_RUNNERS (experimental)"
     )
     parser.add_argument(
         "--data_dir", 
@@ -1004,6 +363,17 @@ def main():
         default=16,
         help="Batch size for processing"
     )
+    parser.add_argument(
+        "--temporal_options",
+        type=str,
+        default=None,  # Auto-select based on model
+        choices=["stacked", "windowA", "windowB", "rgb", "median", "random_window"],
+        help=(
+            "Temporal processing option for multi-temporal data. "
+            "Default: 'stacked' for FTW/SAM/DECODE (8 channels), 'windowA' for DA (4 channels). "
+            "Options: stacked (windowB+windowA), windowA (4ch), windowB (4ch), rgb (6ch)"
+        )
+    )
     
     # Output arguments
     parser.add_argument(
@@ -1027,8 +397,8 @@ def main():
     parser.add_argument(
         "--confidence_threshold", 
         type=float, 
-        default=0.5,
-        help="Confidence threshold for filtering (default: 0.5 for most models, 0.05 for DelineateAnything)"
+        default=None,
+        help="Confidence threshold for filtering detections (default: 0.5 for most models, 0.05 for DelineateAnything from config)"
     )
     
     # Organize arguments by model type for clarity
@@ -1050,13 +420,7 @@ def main():
     # config_file is already defined above, but note it's mainly for DECODE
     
     ftw_group = parser.add_argument_group('FTW-specific options', 'Arguments only used when --model ftw')
-    ftw_group.add_argument(
-        "--temporal_options", 
-        type=str, 
-        default="stacked",
-        choices=["stacked", "window_a", "window_b"],
-        help="Temporal processing option for FTW (default: stacked)"
-    )
+    # temporal_options is now a general argument above
     
     delany_group = parser.add_argument_group('DelineateAnything-specific options', 'Arguments only used when --model delineate_anything or --model da')
     delany_group.add_argument(
@@ -1069,26 +433,26 @@ def main():
     delany_group.add_argument(
         "--patch_size",
         type=int,
-        default=256,
-        help="Patch size for DelineateAnything (default: 256)"
+        default=None,
+        help="Patch size for DelineateAnything (default: from config or 256)"
     )
     delany_group.add_argument(
         "--resize_factor",
         type=int,
-        default=2,
-        help="Resize factor for DelineateAnything (default: 2)"
+        default=None,
+        help="Resize factor for DelineateAnything (default: from config or 2)"
     )
     delany_group.add_argument(
         "--max_detections",
         type=int,
-        default=100,
-        help="Max detections per image for DelineateAnything (default: 100)"
+        default=None,
+        help="Max detections per image for DelineateAnything (default: from config or 100)"
     )
     delany_group.add_argument(
         "--iou_threshold",
         type=float,
-        default=0.3,
-        help="IoU threshold for DelineateAnything NMS (default: 0.3)"
+        default=None,
+        help="IoU threshold for DelineateAnything NMS (default: from config or 0.3)"
     )
     
     args = parser.parse_args()
@@ -1136,6 +500,7 @@ def main():
         runner_args["sam_model_type"] = args.sam_model_type
         runner_args["in_chans"] = getattr(args, "sam_in_chans", 8)  # Default to 8 for stacked Sentinel-2
     elif args.model in ["delineate_anything", "da"]:
+        runner_args["temporal_options"] = args.temporal_options  # Add temporal_options for DA
         runner_args["delany_model_variant"] = args.delany_model_variant
         runner_args["patch_size"] = args.patch_size
         runner_args["resize_factor"] = args.resize_factor
@@ -1162,72 +527,29 @@ def main():
         print(f"Starting inference with {args.model} model...")
         start_time = time.time()
         
-        # Try registry-based approach if requested and available
-        if args.use_registry and REGISTRY_AVAILABLE and args.model in available_models():
-            print(f"Using registry-based segmenter for {args.model}")
-            result = run_registry_inference(
-                model_name=args.model,
-                **runner_args
-            )
-        else:
-            # ⚠️  DEPRECATED: Legacy MODEL_RUNNERS approach
-            # This path will be removed once registry-based inference is fully verified.
-            # Use `--use_registry` flag to use the new registry-based path.
-            import warnings
-            warnings.warn(
-                f"Using deprecated legacy inference path for {args.model}. "
-                "Use --use_registry flag to use the new registry-based segmenters. "
-                "Legacy path will be removed in a future version.",
-                DeprecationWarning,
-                stacklevel=2
-            )
-            runner = MODEL_RUNNERS.get(args.model)
-            if runner is None:
-                raise ValueError(f"Model {args.model} not found in MODEL_RUNNERS. Available: {list(MODEL_RUNNERS.keys())}")
-            result = runner(**runner_args)
+        # Use registry-based segmenter
+        if not REGISTRY_AVAILABLE:
+            raise RuntimeError("Model registry not available")
+        if args.model not in available_models():
+            raise ValueError(f"Model {args.model} not found in registry. Available: {list(available_models().keys())}")
         
-        # Saving logic
-        if args.model == "sam" and isinstance(result, dict):
-            # Aggregate all SAM detections into a single list and save once (baseline-style)
-            # IMPORTANT: preserve dataset evaluation order (countries then images) so metrics align
-            ordered_countries = None
-            try:
-                # Use canonical FTW country ordering if available (imported at module scope)
-                if isinstance(getattr(args, "countries", None), list) and args.countries and args.countries[0] != "all":
-                    # Respect user-specified order
-                    ordered_countries = [c for c in args.countries if c in result]
-                else:
-                    ordered_countries = [c for c in ALL_COUNTRIES if c in result]
-            except Exception:
-                # Fallback to user-specified countries order, else dict key order
-                if isinstance(getattr(args, "countries", None), list) and args.countries:
-                    if args.countries[0] == "all":
-                        ordered_countries = list(result.keys())
-                    else:
-                        ordered_countries = [c for c in args.countries if c in result]
-                else:
-                    ordered_countries = list(result.keys())
-
-            detections_list = []
-            for country in ordered_countries:
-                detections_list.extend(result.get(country, []))
-            logits_list = None
-            output_path = os.path.join(args.output_dir, args.output_name)
-            with open(output_path, 'wb') as f:
-                pickle.dump(detections_list, f)
-            print(f"Detections saved to: {output_path}")
+        print(f"Using registry-based segmenter for {args.model}")
+        result = run_registry_inference(
+            model_name=args.model,
+            **runner_args
+        )
+        
+        # Save results
+        if isinstance(result, tuple):
+            detections_list, logits_list = result
         else:
-            # Fallback to original saving behavior for non-SAM models
-            if isinstance(result, tuple):
-                detections_list, logits_list = result
-            else:
-                detections_list = result
-                logits_list = None
-            
-            output_path = os.path.join(args.output_dir, args.output_name)
-            with open(output_path, 'wb') as f:
-                pickle.dump(detections_list, f)
-                print(f"Detections saved to: {output_path}")
+            detections_list = result
+            logits_list = None
+        
+        output_path = os.path.join(args.output_dir, args.output_name)
+        with open(output_path, 'wb') as f:
+            pickle.dump(detections_list, f)
+        print(f"Detections saved to: {output_path}")
 
         inference_time = time.time() - start_time
         print(f"\nInference completed in {inference_time:.2f} seconds")

@@ -18,9 +18,9 @@ class Detections:
     mask: Optional[np.ndarray] = None
     confidence: Optional[np.ndarray] = None
     class_id: Optional[np.ndarray] = None
-    tracker_id: Optional[np.ndarray] = None
     polygons: Optional[List[Polygon]] = None  # For object-level metrics
     data: Dict[str, Union[np.ndarray, List]] = field(default_factory=dict)
+    image_filename: Optional[str] = None  # Image filename for robust matching
 
     def __len__(self):
         """
@@ -28,10 +28,10 @@ class Detections:
         """
         return len(self.xyxy)
 
-    def __iter__(self) -> Iterator[Tuple[np.ndarray, Optional[np.ndarray], Optional[float], Optional[int], Optional[int], Optional[Polygon]]]:
+    def __iter__(self) -> Iterator[Tuple[np.ndarray, Optional[np.ndarray], Optional[float], Optional[int], Optional[Polygon]]]:
         """
         Iterates over the Detections object and yields a tuple of
-        (xyxy, mask, confidence, class_id, tracker_id, polygon) for each detection.
+        (xyxy, mask, confidence, class_id, polygon) for each detection.
         """
         for i in range(len(self.xyxy)):
             yield (
@@ -39,7 +39,6 @@ class Detections:
                 self.mask[i] if self.mask is not None else None,
                 self.confidence[i] if self.confidence is not None else None,
                 self.class_id[i] if self.class_id is not None else None,
-                self.tracker_id[i] if self.tracker_id is not None else None,
                 self.polygons[i] if self.polygons is not None else None,
             )
     

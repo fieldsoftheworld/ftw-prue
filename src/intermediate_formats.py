@@ -338,15 +338,15 @@ class PanopticOutput:
     
     def to_detections(self, min_area: int = 0, include_stuff: bool = False):
         """
-        Convert to Detections format.
+        Convert to Detections format (things only; stuff is ignored for instance eval).
         
         Args:
             min_area: Minimum area threshold for instances
-            include_stuff: Whether to include "stuff" classes (default: False, only "things")
+            include_stuff: Ignored; Detections uses thing segments only (matches ag-seg/COCO instance eval).
         
         Returns:
             Detections object
         """
         from detections import Detections
-        return Detections.from_panoptic_output(self, min_area=min_area, include_stuff=include_stuff)
+        return Detections.from_panoptic_output(self, min_area=min_area)
 

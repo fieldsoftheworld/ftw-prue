@@ -20,10 +20,13 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-# Add project src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "models" / "ftw"))
-sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "models"))
+# Add project root and src to path (root needed for mask2former + vendored detectron2)
+_repo_root = Path(__file__).resolve().parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+sys.path.insert(0, str(_repo_root / "src"))
+sys.path.insert(0, str(_repo_root / "src" / "models" / "ftw"))
+sys.path.insert(0, str(_repo_root / "src" / "models"))
 
 from detections import Detections
 from intermediate_formats import SemanticOutput, InstanceOutput, PanopticOutput
@@ -126,6 +129,9 @@ def run_registry_inference(
     elif model_name == "decode":
         if kwargs.get("config_file"):
             segmenter_kwargs["config"] = kwargs["config_file"]
+    elif model_name == "mask2former":
+        if kwargs.get("config_file"):
+            segmenter_kwargs["config_file"] = kwargs["config_file"]
     elif model_name in ["delineate_anything", "da"]:
         # Load DA config to get model-specific defaults
         import yaml
@@ -203,8 +209,9 @@ def run_registry_inference(
         print(f"Auto-selected temporal_options: {temporal_options} (model: {model_name})")
     
     # Create dataset
-    # Note: SAM and DA handle their own preprocessing/normalization internally
-    use_transforms = None if model_name in ["sam", "delineate_anything", "da"] else preprocess
+    # Note: SAM and DA handle their own preprocessing/normalization internally.
+    # Mask2Former expects raw-DN input; it applies (x - PIXEL_MEAN) / PIXEL_STD inside the model.
+    use_transforms = None if model_name in ["sam", "delineate_anything", "da", "mask2former"] else preprocess
     ds = FTW(
         root=data_dir,
         countries=countries_sorted,
@@ -266,6 +273,11 @@ def run_registry_inference(
                     detections = output.to_detections(
                         min_area=kwargs.get("min_area", 0),
                         score_threshold=kwargs["confidence_threshold"]
+                    )
+                elif isinstance(output, PanopticOutput):
+                    detections = output.to_detections(
+                        min_area=kwargs.get("min_area", 0),
+                        include_stuff=False,
                     )
                 else:
                     raise ValueError(f"Unexpected output type: {type(output)}")

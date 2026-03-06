@@ -31,12 +31,12 @@ class SegmentEncoder(nn.Module):
         super().__init__(
         )
 
-        # Set device
         self.device = (
             torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         )
-        if ckpt_path == None:
-            ckpt_path="/projects/bdbk/subashk/ckpts/DINOV3/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth"
+        if ckpt_path is None:
+            from ...path_config import get_model_path
+            ckpt_path = str(get_model_path("dinov3"))
         self.encoder = torch.hub.load('facebookresearch/dinov3', 'dinov3_vitl16', weights=ckpt_path)
      
 

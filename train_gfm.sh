@@ -1,14 +1,10 @@
 #!/bin/bash
 
-# ==============================
-# ARGUMENTS
-# ==============================
-export EXP_NAME=${1:-clay}           # clay / terrafm / terramind / dinov3
-export INPUT_TYPE=${2:-images_noaug} # images_noaug | features
+export EXP_NAME=${1:-clay}
+export INPUT_TYPE=${2:-images_noaug}
 
-# If input_type=features → 3rd arg is FEAT_ROOT
 if [ "$INPUT_TYPE" = "features" ]; then
-    export FEAT_ROOT=${3:?❌ ERROR: features mode requires 3rd argument = feat_root path}
+    export FEAT_ROOT=${3:?ERROR: features mode requires 3rd argument = feat_root path}
     export LOG_MODE=${4:-disabled}
 else
     export FEAT_ROOT=""
@@ -22,28 +18,20 @@ mkdir -p "$LOG_DIR"
 export CONFIG_PATH="$WORK_DIR/configs/release/3_class/vit.yaml"
 export PROJECT="FTW-gfm"
 
-echo "🚀 Running EXP=$EXP_NAME | INPUT=$INPUT_TYPE | LOG_MODE=$LOG_MODE"
+echo "Running EXP=$EXP_NAME | INPUT=$INPUT_TYPE | LOG_MODE=$LOG_MODE"
 echo "Working directory: $WORK_DIR"
-echo "=============================="
 
-# ==============================
-# Pretrained encoder weight lookup
-# ==============================
 ENCODER_DIR="$WORK_DIR/gfm_ckpts/encoders"
 
 case "$EXP_NAME" in
     clay)      WEIGHTS_PATH="$ENCODER_DIR/clay-v1.5.ckpt" ;;
     terrafm)   WEIGHTS_PATH="$ENCODER_DIR/TerraFM-B.pth" ;;
     dinov3)    WEIGHTS_PATH="$ENCODER_DIR/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth" ;;
-    terramind) WEIGHTS_PATH="null" ;;  # TerraMind uses no ckpt
+    terramind) WEIGHTS_PATH="null" ;;
     *)         WEIGHTS_PATH="null" ;;
 esac
 
-echo "🧠 Encoder weights: $WEIGHTS_PATH"
-
-# ==============================
-# Model config lookup
-# ==============================
+echo "Encoder weights: $WEIGHTS_PATH"
 case $EXP_NAME in
   clay)      hidden_dim=1024; patch=8;  input_size=256 ;;
   croma)     hidden_dim=768;  patch=8;  input_size=120 ;;
@@ -57,13 +45,9 @@ case $EXP_NAME in
   terrafm)   hidden_dim=768;  patch=16; input_size=224 ;;
   terramind) hidden_dim=768;  patch=16; input_size=224 ;;
   *)
-    echo "❌ Unknown EXP_NAME=$EXP_NAME"
+    echo "Unknown EXP_NAME=$EXP_NAME"
     exit 1 ;;
 esac
-
-# ==============================
-# Metadata / data pipeline setup
-# ==============================
 if [ "$INPUT_TYPE" = "features" ]; then
 
     MODEL_TYPE="pretrained"
@@ -97,9 +81,6 @@ else
 
 fi
 
-# ==============================
-# Launch Training
-# ==============================
 python -m ftw_tools.cli model fit \
   --config "$CONFIG_PATH" -- \
   --model.model "$MODEL_TYPE" \
@@ -114,18 +95,4 @@ python -m ftw_tools.cli model fit \
   --run_name "$EXP_NAME" \
   > "$LOG_DIR/${EXP_NAME}_${INPUT_TYPE}.log" 2>&1
 
-echo "✅ Finished: $EXP_NAME with $INPUT_TYPE (log_mode=$LOG_MODE)"
-
-# ==========================================================
-# EXAMPLE USAGE
-# ==========================================================
-# Standard training w/o wandb
-#   ./train_gfm.sh clay images_noaug
-#
-# Training with features
-#   ./train_gfm.sh terrafm features /path/to/precomputed_feats/terrafm
-#
-# Enable wandb logging online:
-#   ./train_gfm.sh clay images_noaug online
-#   ./train_gfm.sh terrafm features /path/to/feats online
-# ==========================================================
+echo "Finished: $EXP_NAME with $INPUT_TYPE (log_mode=$LOG_MODE)"

@@ -63,29 +63,27 @@ class TerraFMEncoderWrapper(nn.Module):
         self.freeze_encoder = freeze_encoder
 
     def forward(self, datacube):
-        x = datacube  # [B, C, H, W]
-        # import code;code.interact(local=dict(globals(), **locals()));
+        x = datacube
         if x.shape[1] == self.in_chans:
-            if self.freeze_encoder == "all": #Since we are using frozen terrafm, one thing we can try is creating a 12-channel input 
+            if self.freeze_encoder == "all":
                 x = map_to_sentinel12(x)
-                patches = self.model.forward(x, return_cls=False,isl2a=True)[:,1:,:]  # [B, L, D]
+                patches = self.model.forward(x, return_cls=False, isl2a=True)[:, 1:, :]
             else:
-                patches = self.model.forward(x, return_cls=False,isl2a=False)[:,1:,:]  # [B, L, D]
+                patches = self.model.forward(x, return_cls=False, isl2a=False)[:, 1:, :]
 
-        elif x.shape[1] == 2*self.in_chans:
-            # Patchify and create embeddings per patch
-            x_a = x[:,:4,:,:]
-            x_b = x[:,4:,:,:]
-            if self.freeze_encoder == "all": #Since we are using frozen terrafm, one thing we can try is creating a 12-channel input 
+        elif x.shape[1] == 2 * self.in_chans:
+            x_a = x[:, :4, :, :]
+            x_b = x[:, 4:, :, :]
+            if self.freeze_encoder == "all":
                 x_a = map_to_sentinel12(x_a)
                 x_b = map_to_sentinel12(x_b)
-                patches_a =  self.model.forward(x_a, return_cls=False,isl2a=True)[:,1:,:]
-                patches_b =  self.model.forward(x_b, return_cls=False,isl2a=True)[:,1:,:]
+                patches_a = self.model.forward(x_a, return_cls=False, isl2a=True)[:, 1:, :]
+                patches_b = self.model.forward(x_b, return_cls=False, isl2a=True)[:, 1:, :]
             else:
-                patches_a =  self.model.forward(x_a, return_cls=False,isl2a=False)[:,1:,:]
-                patches_b =  self.model.forward(x_b, return_cls=False,isl2a=False)[:,1:,:]
-            patches = torch.cat((patches_a, patches_b), dim=1)  # [B (L + L) D]
-            
+                patches_a = self.model.forward(x_a, return_cls=False, isl2a=False)[:, 1:, :]
+                patches_b = self.model.forward(x_b, return_cls=False, isl2a=False)[:, 1:, :]
+            patches = torch.cat((patches_a, patches_b), dim=1)
+
         return patches
 
 

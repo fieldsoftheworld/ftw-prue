@@ -1,7 +1,5 @@
 """
-model_utils.py
---------
-Self-contained utilities for FTW embedding extraction with Clay, TerraFM, and DINOv3.
+Self-contained utilities for FTW embedding extraction with pretrained encoders.
 """
 
 import os
@@ -10,19 +8,18 @@ import torch
 import rasterio
 import numpy as np
 import yaml
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from box import Box
+import math
+
 from .clay.finetune.segment.factory import SegmentEncoder as ClayEncoder
 from .TerraFM.terrafm_segment import TerraFMEncoderWrapper as TerraFMEncoder
 from .dinov3.dinov3_segmentor import SegmentEncoder as DinoV3Encoder
 from .terramind.terramind import SegmentEncoder as TeraMindEncoder
-from datetime import datetime, timedelta
-import math
+from ..path_config import get_model_path, get_data_root, get_metadata_path
 
-# ============================================================
-# 1️⃣ IMAGE I/O
-# ============================================================
+
 def load_image(path: str, select_rgb: bool = False):
     """Load a single Sentinel-2 image and return image tensor and center lat/lon.
 
@@ -52,13 +49,13 @@ def preprocess_general(sample: dict, norm_const=3000.0) -> dict:
 class preprocess_dinov3:
     def __init__(self, mean=None, std=None, norm_constant=3000.0):
         self.mean = torch.as_tensor(mean if mean is not None else [0.430, 0.411, 0.296], dtype=torch.float32)
-        self.std  = torch.as_tensor(std  if std  is not None else [0.213, 0.156, 0.143], dtype=torch.float32)
+        self.std = torch.as_tensor(std if std is not None else [0.213, 0.156, 0.143], dtype=torch.float32)
         self.norm_constant = norm_constant
 
     def __call__(self, sample: dict) -> dict:
-        image = sample["image"][:3,:,:] / self.norm_constant        # [C,H,W]
-        mean = self.mean.to(image.device).view(-1,1,1)  # [C,1,1]
-        std  = self.std.to(image.device).view(-1,1,1)
+        image = sample["image"][:3, :, :] / self.norm_constant
+        mean = self.mean.to(image.device).view(-1, 1, 1)
+        std = self.std.to(image.device).view(-1, 1, 1)
         sample["image"] = (image - mean) / std
         return sample
 
@@ -69,24 +66,25 @@ class preprocess_clay:
         self.std = std
 
     def __call__(self, sample: dict) -> dict:
-        image = sample["image"]  # shape: [C, H, W]
-        mean = self.mean.to(image.device).view(-1, 1, 1)  # reshape to [C, 1, 1]
+        image = sample["image"]
+        mean = self.mean.to(image.device).view(-1, 1, 1)
         std = self.std.to(image.device).view(-1, 1, 1)
-
         sample["image"] = (image - mean) / std
         return sample
 
 
-# ============================================================
-# 3️⃣ METADATA HELPERS
-# ============================================================
-def normalize_timestamp(date,hour=False):
-    # import code;code.interact(local=dict(globals(), **locals()));
+class preprocess_galileo:
+    """Preprocessing for Galileo benchmark models (identity - handled in wrapper)."""
+    def __call__(self, sample: dict) -> dict:
+        return sample
+
+
+def normalize_timestamp(date, hour=False):
     week = date.isocalendar().week * 2 * np.pi / 52
     if hour:
         hour = date.hour * 2 * np.pi / 24
     else:
-        hour = 12 #approximate 12pm to be default time if time is not given
+        hour = 12
 
     return (math.sin(week), math.cos(week)), (math.sin(hour), math.cos(hour))
 
@@ -113,10 +111,8 @@ def extract_season_dates(json_path):
         data = json.load(f)
 
     seasons = data["seasons"]
-
-    # Handle both dict and list of dicts
     if isinstance(seasons, list):
-        seasons = seasons[0]  # just take the first entry
+        seasons = seasons[0]
 
     window_a_start = seasons["window_a"]["start"]
     window_a_end = seasons["window_a"]["end"]
@@ -141,7 +137,7 @@ def prepare_clay_sample(
     preprocess: callable,
     gsd: torch.Tensor,
     waves: torch.Tensor,
-    data_root: str = "/u/subashk/storage/ftw-prue/data/ftw",
+    data_root: str = None,
 ):
     """
     Prepare a Sentinel-2 image sample for CLAY encoder inference.
@@ -149,10 +145,10 @@ def prepare_clay_sample(
 
     Args:
         image_path: Path to a Sentinel-2 image (.tif)
-        device: torch.device
         preprocess: normalization transform (preprocess_clay instance)
         gsd: Ground Sampling Distance tensor
         waves: Band wavelength tensor
+        data_root: Root directory for FTW data (defaults to path_config.get_data_root())
 
     Returns:
         dict ready for ClayEncoder.forward() with batched tensors.
@@ -165,6 +161,8 @@ def prepare_clay_sample(
             'waves':  tensor
         }
     """
+    if data_root is None:
+        data_root = str(get_data_root())
 
     image_path_lower = str(image_path).lower()
     if "window_a" in image_path_lower:
@@ -174,21 +172,17 @@ def prepare_clay_sample(
     else:
         raise ValueError(f"Cannot infer window type from path: {image_path}")
 
-    # determine country and get timestamps
     country = Path(image_path).parts[-4]
     json_fn = f"{data_root}/{country}/data_config_{country}.json"
     times_json = extract_season_dates(json_fn)
     timestamp = times_json[f"window_{window_type}"]
 
-    # load + preprocess image
     image, lat, lon = load_image(image_path)
     image = preprocess({"image": image})["image"]
-    
-    # temporal encoding
+
     week_norm, hour_norm = normalize_timestamp(timestamp)
     time_vec = torch.tensor(list(week_norm) + list(hour_norm), dtype=torch.float32)
 
-    # spatial encoding
     latlon_encoded = normalize_latlon(lat, lon)
     lat_vec = torch.tensor(latlon_encoded[0], dtype=torch.float32)
     lon_vec = torch.tensor(latlon_encoded[1], dtype=torch.float32)
@@ -210,7 +204,7 @@ def prepare_clay_batch(
     preprocess: callable,
     gsd: torch.Tensor,
     waves: torch.Tensor,
-    data_root: str = "/u/subashk/storage/ftw-prue/data/ftw",
+    data_root: str = None,
 ):
     """
     Prepare a batch of Sentinel-2 image samples for CLAY encoder inference.
@@ -234,6 +228,9 @@ def prepare_clay_batch(
             'waves':  tensor
         }
     """
+    if data_root is None:
+        data_root = str(get_data_root())
+    
     images, times, latlons = [], [], []
 
     for image_path in image_paths:
@@ -251,28 +248,24 @@ def prepare_clay_batch(
         times_json = extract_season_dates(json_fn)
         timestamp = times_json[f"window_{window_type}"]
 
-        # load + preprocess image
         image, lat, lon = load_image(image_path)
         sample = {"image": image}
         sample = preprocess(sample)
         images.append(sample["image"])
 
-        # temporal encoding
         week_norm, hour_norm = normalize_timestamp(timestamp)
         time_vec = torch.tensor(list(week_norm) + list(hour_norm), dtype=torch.float32)
         times.append(time_vec)
 
-        # spatial encoding
         latlon_encoded = normalize_latlon(lat, lon)
         lat_vec = torch.tensor(latlon_encoded[0], dtype=torch.float32)
         lon_vec = torch.tensor(latlon_encoded[1], dtype=torch.float32)
         latlon_vec = torch.cat([lat_vec, lon_vec], dim=-1)
         latlons.append(latlon_vec)
 
-    # stack across batch dimension
-    images = torch.stack(images).to(device)        # [B,C,H,W]
-    times = torch.stack(times).to(device)          # [B,T]
-    latlons = torch.stack(latlons).to(device)      # [B,4]
+    images = torch.stack(images).to(device)
+    times = torch.stack(times).to(device)
+    latlons = torch.stack(latlons).to(device)
 
     return {
         "platform": "sentinel-2-l2a",
@@ -284,17 +277,29 @@ def prepare_clay_batch(
     }
 
 
-
-# ============================================================
-# 5️⃣ MODEL + PREPROCESS WRAPPER
-# ============================================================
-def get_model_and_preprocess(model_name: str, device: torch.device, metadata_path: str):
-    """Return encoder, preprocessing function, and metadata tensors."""
+def get_model_and_preprocess(model_name: str, device: torch.device, metadata_path: str = None, weights_path: str = None):
+    """
+    Return encoder, preprocessing function, and metadata tensors.
+    
+    Args:
+        model_name: Name of the model
+        device: torch.device
+        metadata_path: Path to metadata YAML (defaults to path_config.get_metadata_path())
+        weights_path: Path to model weights (defaults to path_config.get_model_path())
+    
+    Returns:
+        Tuple of (encoder, preprocess_fn, gsd, waves)
+    """
     model_name = model_name.lower()
+    
+    if metadata_path is None:
+        metadata_path = str(get_metadata_path())
+    
+    if weights_path is None:
+        weights_path = str(get_model_path(model_name))
 
-    # -------------------- CLAY --------------------
     if model_name == "clay":
-        weights = "/projects/bdbk/subashk/ckpts/CLAY/clay-v1.5.ckpt"
+        weights = weights_path
         metadata = Box(yaml.safe_load(open(metadata_path, "r")))
         platform = "sentinel-2-l2a"
         bands = ["red", "green", "blue", "nir"]
@@ -322,9 +327,8 @@ def get_model_and_preprocess(model_name: str, device: torch.device, metadata_pat
         encoder.eval()
         return encoder, preprocess_fn, gsd, waves
 
-    # -------------------- TERRAFM --------------------
     elif model_name == "terrafm":
-        weights = "/projects/bdbk/subashk/ckpts/TERRAFM/TerraFM-B.pth"
+        weights = weights_path
         preprocess_fn = preprocess_general
         encoder = TerraFMEncoder(
             ckpt_path=weights, in_chans=4,
@@ -339,11 +343,98 @@ def get_model_and_preprocess(model_name: str, device: torch.device, metadata_pat
         preprocess_fn = preprocess_general
         return encoder, preprocess_fn, None, None
 
-    # -------------------- DINOV3 --------------------
     elif model_name == "dinov3":
-        weights = "/projects/bdbk/subashk/ckpts/DINOV3/dinov3_vitl16_pretrain_sat493m-eadcf0ff.pth"
+        weights = weights_path
         preprocess_fn = preprocess_dinov3()
         encoder = DinoV3Encoder(ckpt_path=weights).to(device)
+        encoder.eval()
+        return encoder, preprocess_fn, None, None
+
+    elif model_name == "croma":
+        from .galileo_benchmark.galileo_wrappers import CROMAEncoder
+        weights = weights_path
+        preprocess_fn = preprocess_galileo()
+        encoder = CROMAEncoder(
+            ckpt_path=weights,
+            size="base",
+            freeze_encoder="all",
+            device=device
+        )
+        encoder.eval()
+        return encoder, preprocess_fn, None, None
+
+    elif model_name == "decur":
+        from .galileo_benchmark.galileo_wrappers import DeCurEncoder
+        weights = weights_path
+        preprocess_fn = preprocess_galileo()
+        encoder = DeCurEncoder(
+            ckpt_path=weights,
+            freeze_encoder="all",
+            device=device
+        )
+        encoder.eval()
+        return encoder, preprocess_fn, None, None
+
+    elif model_name == "dofa":
+        from .galileo_benchmark.galileo_wrappers import DOFAEncoder
+        weights = weights_path
+        preprocess_fn = preprocess_galileo()
+        encoder = DOFAEncoder(
+            ckpt_path=weights,
+            size="base",
+            freeze_encoder="all",
+            device=device
+        )
+        encoder.eval()
+        return encoder, preprocess_fn, None, None
+
+    elif model_name == "prithvi":
+        from .galileo_benchmark.galileo_wrappers import PrithviEncoder
+        weights = weights_path
+        preprocess_fn = preprocess_galileo()
+        encoder = PrithviEncoder(
+            ckpt_path=weights,
+            freeze_encoder="all",
+            device=device
+        )
+        encoder.eval()
+        return encoder, preprocess_fn, None, None
+
+    elif model_name == "satlas":
+        from .galileo_benchmark.galileo_wrappers import SatlasEncoder
+        weights = weights_path
+        preprocess_fn = preprocess_galileo()
+        encoder = SatlasEncoder(
+            ckpt_path=weights,
+            size="base",
+            freeze_encoder="all",
+            device=device
+        )
+        encoder.eval()
+        return encoder, preprocess_fn, None, None
+
+    elif model_name == "softcon":
+        from .galileo_benchmark.galileo_wrappers import SoftConEncoder
+        weights = weights_path
+        preprocess_fn = preprocess_galileo()
+        encoder = SoftConEncoder(
+            ckpt_path=weights,
+            size="base",
+            freeze_encoder="all",
+            device=device
+        )
+        encoder.eval()
+        return encoder, preprocess_fn, None, None
+
+    elif model_name == "galileo":
+        from .galileo_benchmark.galileo_wrappers import GalileoEncoder
+        weights = weights_path
+        preprocess_fn = preprocess_galileo()
+        encoder = GalileoEncoder(
+            ckpt_path=weights,
+            freeze_encoder="all",
+            device=device
+        )
         encoder.eval()
         return encoder, preprocess_fn, None, None
 
@@ -351,14 +442,24 @@ def get_model_and_preprocess(model_name: str, device: torch.device, metadata_pat
         raise ValueError(f"Unsupported model: {model_name}")
     
 
-def get_preprocessor(preprocessing: str, metadata_path: str):
-    """Return only the preprocessing function and metadata tensors (no model)."""
+def get_preprocessor(preprocessing: str, metadata_path: str = None):
+    """
+    Return only the preprocessing function and metadata tensors (no model).
+    
+    Args:
+        preprocessing: Name of preprocessing method
+        metadata_path: Path to metadata YAML (defaults to path_config.get_metadata_path())
+    
+    Returns:
+        Tuple of (preprocess_fn, gsd, waves)
+    """
+    if metadata_path is None:
+        metadata_path = str(get_metadata_path())
     
     if preprocessing == "unet":
         preprocess_fn = preprocess_general
         return preprocess_fn, None, None
 
-    # -------------------- CLAY --------------------
     elif preprocessing == "clay":
         metadata = Box(yaml.safe_load(open(metadata_path, "r")))
         platform = "sentinel-2-l2a"
@@ -374,22 +475,23 @@ def get_preprocessor(preprocessing: str, metadata_path: str):
 
         return preprocess_fn, gsd, waves
 
-    # -------------------- TERRAFM --------------------
     elif preprocessing == "terrafm":
         preprocess_fn = preprocess_general
         return preprocess_fn, None, None
-    
-    # -------------------- TERRAFM --------------------
+
     elif preprocessing == "terramind":
         preprocess_fn = preprocess_general
         return preprocess_fn, None, None
 
-    # -------------------- DINOV3 --------------------
     elif preprocessing == "dinov3":
         preprocess_fn = preprocess_dinov3()
         return preprocess_fn, None, None
 
-    elif preprocessing == None: #placeholder for input_type == "features"
+    elif preprocessing in ["croma", "decur", "dofa", "prithvi", "satlas", "softcon", "galileo"]:
+        preprocess_fn = preprocess_galileo()
+        return preprocess_fn, None, None
+
+    elif preprocessing is None:
         preprocess_fn = None
         return preprocess_fn, None, None
     else:

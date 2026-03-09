@@ -1,7 +1,7 @@
 import os
 import importlib
 
-__all__ = []   # Optional, to control what gets imported with *
+__all__ = []  # Optional, to control what gets imported with *
 
 # Get the directory of this file
 _pkg_dir = os.path.dirname(__file__)

@@ -161,8 +161,6 @@ def data():
     show_default=True,
     help="Comma-separated list of countries to download. The default value 'all' downloads all available countries.",
 )
-
-
 @click.option(
     "--no-unpack",  # deprecated
     "--no_unpack",
@@ -221,9 +219,7 @@ def model():
     show_default=True,
     help="Path to a checkpoint file to resume training from",
 )
-@click.argument(
-    "cli_args", nargs=-1, type=click.UNPROCESSED
-)  # Capture all remaining arguments
+@click.argument("cli_args", nargs=-1, type=click.UNPROCESSED)  # Capture all remaining arguments
 def model_fit(config, ckpt_path, cli_args):
     from ftw_tools.models.baseline_eval import fit
 
@@ -307,39 +303,11 @@ def model_fit(config, ckpt_path, cli_args):
     show_default=True,
     help="Whether to run inference on (window_a, window_b) instead of the default (window_b, window_a).",
 )
-
-
-@click.option(
-    "--input_type",
-    type=str,
-    default="images",
-    show_default=True)
-
-@click.option(
-    "--backbone",
-    type=str,
-    default=None,
-    show_default=True)
-
-@click.option(
-    "--encoder_ckpt_path",
-    type=str,
-    default=None,
-    show_default=True)
-
-
-@click.option(
-    "--feat_root",
-    type=str,
-    default=None,
-    show_default=True)
-
-@click.option(
-    "--test_split",
-    type=str,
-    default="test",
-    show_default=True)
-
+@click.option("--input_type", type=str, default="images", show_default=True)
+@click.option("--backbone", type=str, default=None, show_default=True)
+@click.option("--encoder_ckpt_path", type=str, default=None, show_default=True)
+@click.option("--feat_root", type=str, default=None, show_default=True)
+@click.option("--test_split", type=str, default="test", show_default=True)
 def test(
     model,
     backbone,
@@ -355,27 +323,27 @@ def test(
     swap_order,
     input_type,
     feat_root,
-    encoder_ckpt_path
+    encoder_ckpt_path,
 ):
     from ftw_tools.models.baseline_eval import test
 
     test(
-    model,
-    backbone,
-    test_split,
-    dir,
-    gpu,
-    countries,
-    iou_threshold,
-    out,
-    model_predicts_3_classes,
-    test_on_3_classes,
-    temporal_options,
-    swap_order,
-    input_type,
-    feat_root,
-    encoder_ckpt_path
-)
+        model,
+        backbone,
+        test_split,
+        dir,
+        gpu,
+        countries,
+        iou_threshold,
+        out,
+        model_predicts_3_classes,
+        test_on_3_classes,
+        temporal_options,
+        swap_order,
+        input_type,
+        feat_root,
+        encoder_ckpt_path,
+    )
 
 
 @model.command("download", help="Download model checkpoints")

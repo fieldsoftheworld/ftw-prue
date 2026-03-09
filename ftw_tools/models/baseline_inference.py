@@ -31,9 +31,7 @@ def run(
     mps_mode,
 ):
     if not out:
-        out = os.path.join(
-            os.path.dirname(input), "inference." + os.path.basename(input)
-        )
+        out = os.path.join(os.path.dirname(input), "inference." + os.path.basename(input))
     if gpu is None:
         gpu = -1
 
@@ -41,12 +39,8 @@ def run(
     assert os.path.exists(model), f"Model file {model} does not exist."
     assert model.endswith(".ckpt"), "Model file must be a .ckpt file."
     assert os.path.exists(input), f"Input file {input} does not exist."
-    assert input.endswith(".tif") or input.endswith(".vrt"), (
-        "Input file must be a .tif or .vrt file."
-    )
-    assert overwrite or not os.path.exists(out), (
-        f"Output file {out} already exists. Use -f to overwrite."
-    )
+    assert input.endswith(".tif") or input.endswith(".vrt"), "Input file must be a .tif or .vrt file."
+    assert overwrite or not os.path.exists(out), f"Output file {out} already exists. Use -f to overwrite."
 
     # Determine the device: GPU, MPS, or CPU
     if mps_mode:
@@ -86,34 +80,20 @@ def run(
     print("Padding:", padding)
 
     stride = patch_size - padding * 2
-    assert stride > 64, (
-        "Patch size minus two times the padding must be greater than 64."
-    )
+    assert stride > 64, "Patch size minus two times the padding must be greater than 64."
 
     # Load task
     tic = time.time()
-    task = CustomSemanticSegmentationTask.load_from_checkpoint(
-        model, map_location="cpu"
-    )
+    task = CustomSemanticSegmentationTask.load_from_checkpoint(model, map_location="cpu")
     task.freeze()
     model = task.model.eval().to(device)
 
     if mps_mode:
-        up_sample = K.Resize(
-            (patch_size * resize_factor, patch_size * resize_factor)
-        ).to("cpu")
-        down_sample = (
-            K.Resize((patch_size, patch_size), resample=Resample.NEAREST.name)
-            .to(device)
-            .to("cpu")
-        )
+        up_sample = K.Resize((patch_size * resize_factor, patch_size * resize_factor)).to("cpu")
+        down_sample = K.Resize((patch_size, patch_size), resample=Resample.NEAREST.name).to(device).to("cpu")
     else:
-        up_sample = K.Resize(
-            (patch_size * resize_factor, patch_size * resize_factor)
-        ).to(device)
-        down_sample = K.Resize(
-            (patch_size, patch_size), resample=Resample.NEAREST.name
-        ).to(device)
+        up_sample = K.Resize((patch_size * resize_factor, patch_size * resize_factor)).to(device)
+        down_sample = K.Resize((patch_size, patch_size), resample=Resample.NEAREST.name).to(device)
 
     dataset = SingleRasterDataset(input, transforms=preprocess)
     sampler = GridGeoSampler(dataset, size=patch_size, stride=stride)
@@ -162,9 +142,7 @@ def run(
             pright = right - padding
             ptop = top + padding
             pbottom = bottom - padding
-            destination_height, destination_width = output_mask[
-                ptop:pbottom, pleft:pright
-            ].shape
+            destination_height, destination_width = output_mask[ptop:pbottom, pleft:pright].shape
             inp = predictions[i][
                 padding : padding + destination_height,
                 padding : padding + destination_width,

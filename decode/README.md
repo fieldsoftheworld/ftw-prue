@@ -1,92 +1,107 @@
-# DECODE Model for FTW Field Boundary Segmentation
+# PRUE DECODE Experiment
 
-DECODE (FracTAL ResUNet) implementation integrated with the FTW training pipeline.
+Implementaions for training DECODE (pytorch version) on FTW dataset.
 
-## Model Architecture
+## Files and folders
 
-The model uses FracTAL ResUNet with multi-task learning:
-- **Segmentation head**: Predicts field boundaries
-- **Boundary head**: Predicts boundary pixels
-- **Distance head**: Predicts distance to boundaries
+- `fractal_resunet`: Package containing the FracTAL ResUNet model implementation
+- `train_test.py`: Training script that trains the model and runs evaluation
+- `eval.py`: Evaluation script for testing trained models
+- `data_module.py`: Dataset class for loading multi-country field boundary data
+- `visuals_and_inference.ipynb`: Jupyter notebook for visualization and inference on trained models
 
-## Integration with FTW Pipeline
-
-DECODE is now fully integrated into the FTW training pipeline and can be used like other models (unet, fcn, etc.).
-
-### Training
-
-Use the FTW CLI with a config file:
-
-```bash
-python -m ftw_tools.cli model fit --config decode/config_example.yaml
-```
-
-Or use the training script:
-
-```bash
-./train_gfm.sh decode images
-```
-
-### Evaluation
-
-```bash
-python -m ftw_tools.cli model test \
-  --model <checkpoint_path> \
-  --countries france \
-  --test_split test \
-  --input_type images \
-  --dir ./data/ftw \
-  --gpu 0 \
-  --out results.json
-```
 
 ## Configuration
 
-See `config_example.yaml` for a complete example. Key parameters:
+### Training Configuration
 
-### Model Parameters (`model_kwargs`)
+Before running training, create a `base_config.yaml` file in the same directory as `train_test.py`. The config file should contain:
 
-- `nfilters_init`: Initial number of filters (default: 32)
-- `depth`: Model depth (default: 6)
-- `ftdepth`: Feature depth (default: 5)
-- `psp_depth`: PSP pooling depth (default: 4)
-- `norm_type`: Normalization type ("BatchNorm" or "GroupNorm")
-- `norm_groups`: Number of groups for GroupNorm (default: 4)
-- `nheads_start`: Initial number of attention heads (default: 4)
-- `seg_weight`: Segmentation loss weight (default: 1.0)
-- `bound_weight`: Boundary loss weight (default: 1.0)
-- `dist_weight`: Distance loss weight (default: 5.0)
+- `experiment_name`: Name for the experiment
+- `save_dir`: Directory where results will be saved
+- `data`: Configuration for data loading
+  - `root_dir`: Root directory containing country data
+  - `countries`: List of countries to use
+  - `n_classes`: Number of classes
+  - `in_channels`: Number of input channels
+  - `temporal_option`: Temporal option ("stacked", "windowA", or "windowB")
+  - `crop_size`: Crop size as a list
+  - `num_samples`: Number of samples (-1 for all)
+  - `presence_only`: Boolean flag for presence-only handling
+- `model`: Model configuration
+  - `nfilters_init`: Initial number of filters
+  - `depth`: Model depth
+  - `ftdepth`: Feature depth
+  - `psp_depth`: PSP depth
+  - `norm_type`: Normalization type
+  - `norm_groups`: Normalization groups
+  - `nheads_start`: Number of attention heads
+- `train`: Training configuration
+  - `batch_size`: Batch size
+  - `num_workers`: Number of data loading workers
+  - `lr`: Learning rate
+  - `num_epochs`: Number of training epochs
+  - `patience`: Early stopping patience
+- `loss`: Loss weights
+  - `seg_weight`: Segmentation loss weight
+  - `bound_weight`: Boundary loss weight
+  - `dist_weight`: Distance loss weight
 
-### Model Settings
+### Evaluation Configuration
 
-- `model`: Set to `"decode"`
-- `loss`: Set to `"decode"` (uses MultiTaskLoss)
-- `in_channels`: 4 for single window, 8 for stacked
-- `num_classes`: 2 or 3
-- `presence_only`: Boolean for presence-only handling
+For evaluation, the script reads from a config file at `logs-decode/exp0910-2classes-2win/config.yaml`. Update the path in `eval.py` (line 23) to point to your trained model's config file.
 
-### Data Settings
+## Usage
 
-The dataset automatically computes boundary and distance labels when using decode model.
+### Training
 
-## Model Outputs
+To train the model:
 
-DECODE returns three outputs:
-1. **Segmentation logits**: `[B, num_classes, H, W]` - Main segmentation prediction
-2. **Boundary logits**: `[B, num_classes, H, W]` - Boundary prediction
-3. **Distance map**: `[B, 1, H, W]` - Distance to boundaries
+```bash
+python train_test.py
+```
 
-For metrics and evaluation, only the segmentation output is used.
+This will:
+1. Load configuration from `base_config.yaml`
+2. Create the experiment directory and save a copy of the config
+3. Train the model for the specified number of epochs
+4. Save the best model checkpoint to `{save_dir}/{experiment_name}/best_model.pth`
+5. Generate loss plots and learning rate plots
+6. Run evaluation on test data and save results to CSV
 
-## Files
+Outputs:
+- `{save_dir}/{experiment_name}/best_model.pth`: Best model checkpoint
+- `{save_dir}/{experiment_name}/train_loss.csv`: Training loss per epoch
+- `{save_dir}/{experiment_name}/val_loss.csv`: Validation loss per epoch
+- `{save_dir}/{experiment_name}/loss_plot.png`: Training/validation loss plot
+- `{save_dir}/{experiment_name}/lr_plot.png`: Learning rate schedule plot
+- `{save_dir}/{experiment_name}/test_results.csv`: Test evaluation results per country
 
-- `fractal_resunet/`: Model implementation
-- `config_example.yaml`: Example configuration file
-- `visuals_and_inference.ipynb`: Visualization notebook (optional)
+### Evaluation
+
+To evaluate a trained model:
+
+```bash
+python eval.py
+```
+
+This will:
+1. Load the model configuration from the specified config path
+2. Load the trained model checkpoint from `{save_dir}/{experiment_name}/best_model.pth`
+3. Evaluate the model on test data for each country
+4. Save results to `{save_dir}/{experiment_name}/test_results_final_flipped.csv`
+
+The evaluation computes:
+- Pixel-level metrics: IoU, precision, recall
+- Object-level metrics: precision, recall
+
+For presence-only countries (brazil, india, kenya, rwanda), only recall metrics are computed.
+
 
 ## Notes
 
-- The model uses multi-task learning with segmentation, boundary, and distance prediction
-- Boundary and distance labels are automatically computed from masks
-- Presence-only countries are handled via the `presence_only` parameter
-- Checkpoints are saved in Lightning format and can be loaded via `CustomSemanticSegmentationTask.load_from_checkpoint()`
+- The model uses multi-task learning with segmentation, boundary, and distance prediction heads
+- Presence-only countries are handled differently during evaluation (only recall is computed)
+- Early stopping is implemented based on validation loss
+- The training uses cosine annealing learning rate scheduling
+

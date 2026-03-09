@@ -17,6 +17,7 @@ from functools import lru_cache
 import math
 from box import Box
 import yaml
+
 # Harvest day raster paths from https://github.com/ucg-uv/research_products/tree/main
 SUMMER_START_RASTER_PATH = "assets/global_crop_calendar/sc_sos_3x3_v2_cog.tiff"
 SUMMER_END_RASTER_PATH = "assets/global_crop_calendar/sc_eos_3x3_v2_cog.tiff"
@@ -26,6 +27,7 @@ logger = logging.getLogger()
 # ============================================================
 # Some utilities for dataset/datamodule
 # ============================================================
+
 
 def compute_md5(file_path):
     """Compute the MD5 checksum of a file."""
@@ -97,9 +99,7 @@ def get_harvest_integer_from_bbox(
     end_harvest_dset = xr.open_dataset(end_year_raster_path, engine="rasterio")
 
     # Clip the datasets to the bounding box
-    start_value = start_harvest_dset.rio.clip_box(
-        bbox[0], bbox[1], bbox[2], bbox[3], allow_one_dimensional_raster=True
-    )
+    start_value = start_harvest_dset.rio.clip_box(bbox[0], bbox[1], bbox[2], bbox[3], allow_one_dimensional_raster=True)
 
     if len(start_value["band_data"][0][0]) > 1:
         start_days = start_value["band_data"].values[0][0]
@@ -110,9 +110,7 @@ def get_harvest_integer_from_bbox(
     else:
         start_value = int(start_value["band_data"].values[0][0][0])
 
-    end_value = end_harvest_dset.rio.clip_box(
-        bbox[0], bbox[1], bbox[2], bbox[3], allow_one_dimensional_raster=True
-    )
+    end_value = end_harvest_dset.rio.clip_box(bbox[0], bbox[1], bbox[2], bbox[3], allow_one_dimensional_raster=True)
     if len(end_value["band_data"][0][0]) > 1:
         end_days = end_value["band_data"].values[0][0]
         logger.info(
@@ -138,7 +136,5 @@ def parse_bbox(ctx, param, value):
         try:
             values[i] = float(v)
         except ValueError:
-            raise click.BadParameter(
-                f"Invalid value for element {i} in bounding box: {v}"
-            )
+            raise click.BadParameter(f"Invalid value for element {i} in bounding box: {v}")
     return values

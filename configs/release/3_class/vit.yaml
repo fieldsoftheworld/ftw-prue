@@ -2,6 +2,7 @@ trainer:
   max_epochs: 30
   log_every_n_steps: 10
   accelerator: gpu
+  accumulate_grad_batches: 2
   default_root_dir: logs/FTW-Release-Full-3-class-ViT
   devices: 
     - 0
@@ -38,7 +39,7 @@ model:
 data:
   class_path: ftw_tools.torchgeo.datamodules.FTWDataModule
   init_args:
-    batch_size: 32
+    batch_size: 16
     num_workers: 16
     random_shuffle: false
     train_countries:

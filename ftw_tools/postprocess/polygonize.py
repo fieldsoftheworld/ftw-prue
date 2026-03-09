@@ -59,9 +59,7 @@ def polygonize(
     with rasterio.open(input) as src:
         original_crs = src.crs.to_string()
         is_meters = src.crs.linear_units in ["m", "metre", "meter"]
-        equal_area_crs = CRS.from_epsg(
-            6933
-        )  # Define the equal-area projection using EPSG:6933
+        equal_area_crs = CRS.from_epsg(6933)  # Define the equal-area projection using EPSG:6933
         tags = src.tags()
 
         input_height, input_width = src.shape
@@ -82,28 +80,20 @@ def polygonize(
         elif out.endswith(".ndjson"):
             format = "GeoJSONSeq"
         else:
-            raise ValueError(
-                "Output format not supported. " + SUPPORTED_POLY_FORMATS_TXT
-            )
+            raise ValueError("Output format not supported. " + SUPPORTED_POLY_FORMATS_TXT)
 
         is_geojson = format.startswith("GeoJSON")
         if is_geojson:
             epsg4326 = CRS.from_epsg(4326)
-            affine = Transformer.from_crs(
-                original_crs, epsg4326, always_xy=True
-            ).transform
+            affine = Transformer.from_crs(original_crs, epsg4326, always_xy=True).transform
 
         rows = []
         with tqdm(total=total_iterations, desc="Processing mask windows") as pbar:
             for y in range(0, input_height, polygonization_stride):
                 for x in range(0, input_width, polygonization_stride):
                     new_transform = src.transform * Affine.translation(x, y)
-                    mask_window = mask[
-                        y : y + polygonization_stride, x : x + polygonization_stride
-                    ]
-                    for geom_geojson, val in rasterio.features.shapes(
-                        mask_window, transform=new_transform
-                    ):
+                    mask_window = mask[y : y + polygonization_stride, x : x + polygonization_stride]
+                    for geom_geojson, val in rasterio.features.shapes(mask_window, transform=new_transform):
                         if val != 1:
                             continue
 
@@ -121,18 +111,14 @@ def polygonize(
                             # Reproject the geometry to the equal-area projection
                             # if the CRS is not in meters
                             geom_proj_meters = shapely.geometry.shape(
-                                fiona.transform.transform_geom(
-                                    original_crs, equal_area_crs, geom_geojson
-                                )
+                                fiona.transform.transform_geom(original_crs, equal_area_crs, geom_geojson)
                             )
 
                         area = geom_proj_meters.area
                         perimeter = geom_proj_meters.length
 
                         # Only include geometries that meet the minimum size requirement
-                        if area < min_size or (
-                            max_size is not None and area > max_size
-                        ):
+                        if area < min_size or (max_size is not None and area > max_size):
                             continue
 
                         if is_geojson:
@@ -155,9 +141,7 @@ def polygonize(
     if format == "Parquet":
         timestamp = tags.get("TIFFTAG_DATETIME", None)
         if timestamp is not None:
-            pattern = re.compile(
-                r"^(\d{4})[:-](\d{2})[:-](\d{2})[T\s](\d{2}):(\d{2}):(\d{2}).*$"
-            )
+            pattern = re.compile(r"^(\d{4})[:-](\d{2})[:-](\d{2})[T\s](\d{2}):(\d{2}):(\d{2}).*$")
             if pattern.match(timestamp):
                 timestamp = re.sub(pattern, r"\1-\2-\3T\4:\5:\6Z", timestamp)
             else:
@@ -165,9 +149,7 @@ def polygonize(
                 timestamp = None
 
         config = collection = {"fiboa_version": "0.2.0"}
-        columns = ["geometry", "determination_method"] + list(
-            schema["properties"].keys()
-        )
+        columns = ["geometry", "determination_method"] + list(schema["properties"].keys())
         gdf = features_to_dataframe(rows, columns)
         gdf.set_crs(original_crs, inplace=True, allow_override=True)
         gdf["determination_method"] = "auto-imagery"
@@ -177,9 +159,7 @@ def polygonize(
 
         create_parquet(gdf, columns, collection, out, config, compression="brotli")
     else:
-        print(
-            "WARNING: The fiboa-compliant GeoParquet output format is recommended for field boundaries."
-        )
+        print("WARNING: The fiboa-compliant GeoParquet output format is recommended for field boundaries.")
         if is_geojson:
             original_crs = epsg4326
         with fiona.open(out, "w", format, schema=schema, crs=original_crs) as dst:

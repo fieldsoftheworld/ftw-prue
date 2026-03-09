@@ -67,9 +67,7 @@ def unpack_zip_files(root_folder_path, ftw_folder_path):
     tasks = []
     for zip_file in zip_files:
         zip_file_path = os.path.join(root_folder_path, zip_file)
-        folder_name = os.path.splitext(zip_file)[
-            0
-        ]  # Remove .zip extension to get folder name
+        folder_name = os.path.splitext(zip_file)[0]  # Remove .zip extension to get folder name
         extract_folder_path = os.path.join(ftw_folder_path, folder_name)
 
         # Create the folder where contents will be extracted

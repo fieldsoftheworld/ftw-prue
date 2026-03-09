@@ -1,139 +1,86 @@
-# 👩‍🍳 **PRUE**: A **P**ractical **R**ecipe for Field Bo**u**ndary S**e**gmentation at Scale
+# PRUE
 
-Official repository for "PRUE: A Practical Recipe for Field Boundary Segmentation at Scale".
+**A Practical Recipe for Field Boundary Segmentation at Scale**
 
+CVPR 2025 &middot; [Paper (coming soon)]() &middot; [Fields of the World](https://github.com/fieldsoftheworld/ftw-baselines)
 
-## Overview
+---
 
-This codebase provides:
-- Support for multiple model architectures (standard segmentation models, pretrained encoders, and custom models)
-- Training and evaluation pipelines for FTW based field boundary segmentation
-- Feature extraction utilities for precomputing embeddings
-- Unified interface for working with different model architectures
+This repo benchmarks field boundary segmentation across 25 countries using standard segmentation models, geospatial foundation model (GFM) encoders, and custom architectures (DECODE, SAM2) on the [Fields of the World (FTW)](https://github.com/fieldsoftheworld/ftw-baselines) dataset.
 
-## Data Setup
-
-1. Download the FTW (Fields of the World) dataset following instructions in the [ftw-baselines repository](https://github.com/fieldsoftheworld/ftw-baselines)
-2. Place the dataset under `./data/ftw`
-
-## Environment Setup
-
-Create and activate the Conda environment:
+## Setup
 
 ```bash
-conda env create -f env.yaml
-conda activate ftw
+git clone --recurse-submodules https://github.com/fieldsoftheworld/ftw-prue.git
+cd ftw-prue
+
+# using uv (recommended)
+uv pip install -e .            # core: training + eval
+uv pip install -e ".[gfm]"    # + foundation model encoders
+uv pip install -e ".[sam2]"   # + SAM2 finetuning
+uv pip install -e ".[dev]"    # + pytest, ruff
+uv pip install -e ".[all]"    # everything
 ```
 
-## Available Models
+`pip install -e .` works too if you don't have [uv](https://docs.astral.sh/uv/).
 
-The repository supports multiple model architectures organized into categories:
+Download the FTW dataset per the [ftw-baselines instructions](https://github.com/fieldsoftheworld/ftw-baselines) and place it at `./data/ftw` (or set `FTW_DATA_DIR`).
 
-### Standard Segmentation Models
+## Repo layout
 
-These models work directly on images and use standard backbones:
+```
+ftw_tools/       Core package — datasets, trainers, losses, metrics, postprocessing
+pretrained/      GFM encoder wrappers + feature extraction
+decode/          DECODE (FracTAL ResUNet) multi-task model
+sam2_ftw/        SAM2 finetuning pipeline
+configs/         Training configs (2-class, 3-class, ViT variants)
+GFMs/            Embedding extraction scripts (CROMA, DeCUR, DOFA, …)
+tools/           Throughput benchmark, COCO converter, split search
+tests/           Unit tests
+```
 
-- **`unet`**: U-Net architecture with various backbones (e.g., `efficientnet-b3`, `resnet50`)
-- **`deeplabv3+`**: DeepLabV3+ with encoder backbones
-- **`fcn`**: Fully Convolutional Network
-- **`upernet`**: UPerNet architecture
-- **`segformer`**: SegFormer transformer-based model
-- **`dpt`**: Dense Prediction Transformer
+## Models
 
-**Usage**: Set `model: "unet"` (or other model name) and `backbone: "efficientnet-b3"` in config.
+**Standard decoders** — U-Net, DeepLabV3+, FCN, UPerNet, SegFormer, DPT (via [smp](https://github.com/qubvel-org/segmentation_models.pytorch) / [timm](https://github.com/huggingface/pytorch-image-models))
 
-### Pretrained Foundation Models (GFM)
+**GFM encoders** — Clay, TerraFM, DINOv3, TerraMind, CROMA, DeCUR, DOFA, Prithvi, SatLAS, SoftCon, Galileo
 
-These models use pretrained encoders with a segmentation decoder:
-
-- **Foundation models**: `clay`, `terrafm`, `dinov3`, `terramind`
-- **Galileo benchmark models**: `croma`, `decur`, `dofa`, `prithvi`, `satlas`, `softcon`, `galileo`
-
-**Usage**: Set `model: "gfm"` and `backbone: "clay"` (or other encoder name) in config.
-
-Model checkpoints should be placed in `gfm_ckpts/encoders/` (or set `FTW_CKPT_BASE_DIR` environment variable).
-
-### Feature-Based Models
-
-- **`pretrained`**: Uses precomputed features from any encoder
-
-**Usage**: Set `model: "pretrained"` and provide precomputed features via `feat_root`.
-
-### Custom Models
-
-- **`decode`**: FracTAL ResUNet with multi-task learning (segmentation, boundary, distance)
-
-**Usage**: Set `model: "decode"` and `loss: "decode"` in config. See [decode/README.md](decode/README.md) for details.
-
-For detailed usage and API documentation, see [pretrained/README.md](pretrained/README.md).
+**Custom** — DECODE (FracTAL ResUNet multi-task), SAM2 (temporal propagation)
 
 ## Training
 
-### Using Training Scripts
-
-For GFM models (pretrained encoders), use `train_gfm.sh`:
-
 ```bash
-./train_gfm.sh <model_name> <input_type> [<feat_root>] [<log_mode>]
+# GFM encoder (from images)
+./train_gfm.sh clay images_noaug
+
+# GFM encoder (from precomputed features)
+./train_gfm.sh terrafm features /path/to/features
+
+# Clay finetuning (encoder + decoder end-to-end)
+./train_clay.sh a online
+
+# DECODE
+./train_gfm.sh decode images_noaug
+
+# Lightning CLI directly
+python -m ftw_tools.cli model fit --config configs/release/3_class/full-ftw.yaml
 ```
-
-**Arguments:**
-- `model_name`: Model to train (e.g., `clay`, `terrafm`, `croma`, `decode`)
-- `input_type`: `images_noaug` (raw images) or `features` (precomputed embeddings)
-- `feat_root`: Path to precomputed features (required when `input_type=features`)
-- `log_mode`: Logging mode (default: `disabled`)
-
-**Examples:**
-```bash
-./train_gfm.sh clay images_noaug disabled
-./train_gfm.sh terrafm features /path/to/features disabled
-./train_gfm.sh decode images_noaug disabled
-```
-
-### Using Lightning CLI
-
-For all models, you can use the Lightning CLI with a config file:
-
-```bash
-python -m ftw_tools.cli model fit --config <config_file.yaml>
-```
-
-Example config files are available in `configs/release/` and `decode/config_example.yaml`.
 
 ## Evaluation
 
-### Using Evaluation Scripts
-
-For GFM models, use `eval_gfm.sh`:
-
 ```bash
-./eval_gfm.sh <model_filter> <experiment> <input_type> [<feat_root_base>]
-```
-
-**Arguments:**
-- `model_filter`: `all` or specific model name (e.g., `clay`, `decode`)
-- `experiment`: `main` or `supp`
-- `input_type`: `images_noaug` or `features`
-- `feat_root_base`: Directory with precomputed features (required when `input_type=features`)
-
-**Examples:**
-```bash
+# All GFM models
 ./eval_gfm.sh all main features /path/to/features
+
+# Single model
 ./eval_gfm.sh clay main images_noaug
-./eval_gfm.sh decode main images_noaug
-```
 
-Decoder checkpoints should be placed under:
-- `gfm_ckpts/decoders/main/<model_name>/`
-- `gfm_ckpts/decoders/supp/<model_name>/`
+# Clay finetuned
+./eval_clay.sh main
 
-### Using Lightning CLI
-
-For all models, you can use the Lightning CLI:
-
-```bash
+# Lightning CLI
 python -m ftw_tools.cli model test \
-  --model <checkpoint_path> \
+  --model checkpoint.ckpt \
   --countries france \
   --test_split test \
   --input_type images \
@@ -142,12 +89,43 @@ python -m ftw_tools.cli model test \
   --out results.json
 ```
 
-## Feature Extraction
+## Feature extraction
 
-To precompute embeddings for the entire dataset:
+Precompute embeddings for the full dataset:
 
 ```bash
-python -m pretrained.models.compute_feats --model <model_name> --batch_size 32
+python -m pretrained.models.compute_feats --model clay --batch_size 32
 ```
 
-This extracts embeddings for all Sentinel-2 images and saves them as `.npz` files. See `pretrained/README.md` for detailed options.
+Per-model scripts in [`GFMs/`](GFMs/).
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FTW_DATA_DIR` / `FTW_DATA_ROOT` | `./data/ftw` | Dataset root |
+| `GFM_CKPT_DIR` | `./gfm_ckpts/encoders` | Encoder checkpoints |
+| `CLAY_CKPT_PATH` | *(required)* | Clay checkpoint for `eval_clay.sh` |
+| `SAM2_CHECKPOINT_PATH` | *(required)* | SAM2 base checkpoint |
+| `SAM2_MODEL_CFG` | `sam2_hiera_s.yaml` | SAM2 model config |
+
+## Testing
+
+```bash
+pytest tests/ -v
+```
+
+## Citation
+
+```bibtex
+@inproceedings{prue2025,
+  title={PRUE: A Practical Recipe for Field Boundary Segmentation at Scale},
+  author={TODO},
+  booktitle={CVPR},
+  year={2025}
+}
+```
+
+## License
+
+[MIT](LICENSE)

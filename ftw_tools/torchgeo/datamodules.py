@@ -82,8 +82,11 @@ class FTWDataModule(LightningDataModule):
         self.temporal_options = temporal_options
         self.num_samples = num_samples
         self.metadata_path = metadata_path
+        self.sam2_max_image_size = kwargs.pop("sam2_max_image_size", 1024)
+        self.sam2_num_points = kwargs.pop("sam2_num_points", 1)
+        self.sam2_mode = temporal_options == "sam2"
 
-        if self.input_type == "images":
+        if self.input_type == "images" and not self.sam2_mode:
             # for the temporal option windowA, windowB and median we will have 4 channel input
             if self.temporal_options in ("windowA", "windowB", "median", "random_window"):
                 self.mean = torch.tensor([0, 0, 0, 0])
@@ -128,15 +131,13 @@ class FTWDataModule(LightningDataModule):
                 print(aug)
 
             self.train_aug = K.AugmentationSequential(*augs, data_keys=None)
-            self.aug = K.AugmentationSequential(
-                K.Normalize(mean=self.mean, std=self.std), data_keys=None
-            )
+            self.aug = K.AugmentationSequential(K.Normalize(mean=self.mean, std=self.std), data_keys=None)
 
-        if self.input_type in ["features", "images_noaug"]: #No augmentations for features and GFM experiments for now
+        if self.input_type in ["features", "images_noaug"] or self.sam2_mode:
+            # No augmentations for features, GFM experiments, and SAM-2
             augs = []
             self.train_aug = K.AugmentationSequential(*augs, data_keys=None)
             self.aug = K.AugmentationSequential(data_keys=None)
-
 
     def setup(self, stage: str):
         if stage in ["fit"]:
@@ -151,6 +152,8 @@ class FTWDataModule(LightningDataModule):
                 feat_root=self.feat_root,
                 preprocessing=self.preprocessing,
                 metadata_path=self.metadata_path,
+                sam2_max_image_size=self.sam2_max_image_size,
+                sam2_num_points=self.sam2_num_points,
             )
             self.train_dataset.compute_boundary_distance = self.compute_boundary_distance
         if stage in ["fit", "validate"]:
@@ -165,6 +168,8 @@ class FTWDataModule(LightningDataModule):
                 feat_root=self.feat_root,
                 preprocessing=self.preprocessing,
                 metadata_path=self.metadata_path,
+                sam2_max_image_size=self.sam2_max_image_size,
+                sam2_num_points=self.sam2_num_points,
             )
             self.val_dataset.compute_boundary_distance = self.compute_boundary_distance
         if stage == "test":
@@ -179,6 +184,8 @@ class FTWDataModule(LightningDataModule):
                 feat_root=self.feat_root,
                 preprocessing=self.preprocessing,
                 metadata_path=self.metadata_path,
+                sam2_max_image_size=self.sam2_max_image_size,
+                sam2_num_points=self.sam2_num_points,
             )
             self.test_dataset.compute_boundary_distance = self.compute_boundary_distance
 
@@ -210,7 +217,8 @@ class FTWDataModule(LightningDataModule):
         )
 
     def on_after_batch_transfer(self, batch: dict[str, Tensor], dataloader_idx: int):
-        if self.trainer:
+        if self.trainer and not self.sam2_mode:
+            # Skip augmentations for SAM-2 mode (images are already preprocessed)
             if self.input_type == "images":
                 if self.trainer.training:
                     batch = self.train_aug(batch)

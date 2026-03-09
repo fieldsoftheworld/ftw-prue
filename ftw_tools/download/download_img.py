@@ -86,9 +86,7 @@ def _get_item_from_earthsearch(id: str) -> pystac.Item:
         month = str(int(month))
 
         uri = (
-            f"{AWS_SENTINEL_URL}/"
-            f"sentinel-s2-l2a-cogs/{utm_zone}/{lat_band}/{grid_square}/"
-            f"{year}/{month}/{id}/{id}.json"
+            f"{AWS_SENTINEL_URL}/sentinel-s2-l2a-cogs/{utm_zone}/{lat_band}/{grid_square}/{year}/{month}/{id}/{id}.json"
         )
     else:
         uri = id
@@ -112,9 +110,7 @@ def get_item(id: str, stac_host: str) -> pystac.Item:
     elif stac_host == "earthsearch":
         return _get_item_from_earthsearch(id)
     else:
-        raise ValueError(
-            f"Unsupported STAC host: {stac_host}. Use 'mspc' or 'earthsearch'."
-        )
+        raise ValueError(f"Unsupported STAC host: {stac_host}. Use 'mspc' or 'earthsearch'.")
 
 
 def scene_selection(
@@ -175,9 +171,7 @@ def scene_selection(
         verbose=verbose,
     )
     if verbose:
-        print(
-            f"\nSearching for LATE SEASON scene around {end_dt.date()} (crop calendar end)"
-        )
+        print(f"\nSearching for LATE SEASON scene around {end_dt.date()} (crop calendar end)")
     win_b = query_stac(
         bbox=bbox,
         date=end_dt,
@@ -236,9 +230,7 @@ def query_stac(
             verbose=verbose,
         )
     else:
-        raise ValueError(
-            f"Unsupported STAC host: {stac_host}. Use 'mspc' or 'earthsearch'."
-        )
+        raise ValueError(f"Unsupported STAC host: {stac_host}. Use 'mspc' or 'earthsearch'.")
 
     logger.info(f"Returned {len(items)} Items")
     if verbose:
@@ -262,10 +254,7 @@ def query_stac(
 
     # Check if AOI is approximately greater than 100 km x 100 km and spans multiple Sentinel 2 MGRS tiles
     if len(items) > 1 and (
-        gpd.GeoDataFrame(geometry=[box(*bbox)], crs="EPSG:4326")
-        .to_crs("EPSG:6933")
-        .area[0]
-        > 10000000000
+        gpd.GeoDataFrame(geometry=[box(*bbox)], crs="EPSG:4326").to_crs("EPSG:6933").area[0] > 10000000000
     ):
         s2_tile_ids = []
         for item in items:
@@ -407,9 +396,7 @@ def _query_earthsearch(
     collection_name = S2_COLLECTIONS.get(s2_collection, COLLECTION_ID)
 
     if verbose:
-        _log_stac_query(
-            host, collection_name, date_range, buffer_days, date, bbox, cloud_cover_max
-        )
+        _log_stac_query(host, collection_name, date_range, buffer_days, date, bbox, cloud_cover_max)
 
     catalog = pystac_client.Client.open(host)
     search = catalog.search(
@@ -447,9 +434,7 @@ def _query_microsoft_pc(
     collection_name = COLLECTION_ID  # MSPC always uses the default collection
 
     if verbose:
-        _log_stac_query(
-            host, collection_name, date_range, buffer_days, date, bbox, cloud_cover_max
-        )
+        _log_stac_query(host, collection_name, date_range, buffer_days, date, bbox, cloud_cover_max)
 
     catalog = pystac_client.Client.open(host)
     search = catalog.search(
@@ -478,9 +463,7 @@ def _parse_stac_item(item: pystac.Item) -> dict:
     """
     cloud_cover = eo.ext(item).cloud_cover
     date_str = item.datetime.date() if item.datetime else "Unknown date"
-    mgrs_tile = item.properties.get("grid:code") or item.properties.get(
-        "s2:mgrs_tile", "Unknown"
-    )
+    mgrs_tile = item.properties.get("grid:code") or item.properties.get("s2:mgrs_tile", "Unknown")
 
     return {
         "id": item.id,
@@ -547,9 +530,7 @@ def create_input(
         if datetime and (not timestamp or datetime > timestamp):
             timestamp = datetime
 
-        proc_version = item.properties.get(
-            "processing:version", item.properties.get("s2:processing_baseline", 0)
-        )
+        proc_version = item.properties.get("processing:version", item.properties.get("s2:processing_baseline", 0))
         try:
             proc_version = float(proc_version)
         except TypeError:
@@ -591,29 +572,16 @@ def create_input(
         chunks={"x": "auto", "y": "auto"},
     )
 
-    data = (
-        data.to_array(dim="band")
-        .stack(bands=("time", "band"))
-        .drop_vars("band")
-        .transpose("bands", "y", "x")
-    )
+    data = data.to_array(dim="band").stack(bands=("time", "band")).drop_vars("band").transpose("bands", "y", "x")
 
     if version < 3 or version >= 4:
-        print(
-            f"Processing version {version} unknown or untested (< 3.0 or >= 4.0). Inference quality might decrease."
-        )
+        print(f"Processing version {version} unknown or untested (< 3.0 or >= 4.0). Inference quality might decrease.")
     if version >= 4:
-        print(
-            f"Rescaling data to processing version 3.0 from processing version {version}."
-        )
+        print(f"Rescaling data to processing version 3.0 from processing version {version}.")
         data = (data.astype("int32") - 1000).clip(min=0).astype("uint16")
 
     if verbose:
-        print(
-            f"Data shape: {data.shape}\n"
-            f"Data bounds: {data.rio.bounds()}\n"
-            f"Data CRS: {data.rio.crs}"
-        )
+        print(f"Data shape: {data.shape}\nData bounds: {data.rio.bounds()}\nData CRS: {data.rio.crs}")
 
     print("Writing output")
     with dask.diagnostics.progress.ProgressBar():

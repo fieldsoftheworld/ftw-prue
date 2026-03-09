@@ -44,7 +44,7 @@ from tqdm import tqdm
 
 from detectron2.config import CfgNode, get_cfg
 from detectron2.data import MetadataCatalog
-from detectron2.data.detection_utils import read_geotiff
+from trainer.io_utils import read_geotiff
 from detectron2.projects.deeplab import add_deeplab_config
 from detectron2.utils.visualizer import Visualizer, ColorMode
 

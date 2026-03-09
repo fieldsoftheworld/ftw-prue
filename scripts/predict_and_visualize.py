@@ -40,7 +40,7 @@ import cv2
 
 from detectron2.config import CfgNode
 from detectron2.data import MetadataCatalog
-from detectron2.data.detection_utils import read_geotiff
+from trainer.io_utils import read_geotiff
 
 # Add project root to Python path BEFORE importing custom modules
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

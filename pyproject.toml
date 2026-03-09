@@ -44,8 +44,9 @@ sam2 = [
     "hydra-core>=1.3",
 ]
 m2f = [
-    # Mask2Former — detectron2 + mask2former are vendored (modified);
-    # install detectron2 from local: pip install -e detectron2/
+    # Mask2Former panoptic segmentation (mask2former/ is vendored with modifications)
+    # detectron2 requires --no-build-isolation since it needs torch at build time
+    "detectron2 @ git+https://github.com/facebookresearch/detectron2.git",
     "pillow>=9.0",
     "pycocotools>=2.0",
     "fvcore>=0.1.5",
@@ -80,7 +81,6 @@ extend-exclude = [
     "pretrained/models/galileo_benchmark/galileo",
     "pretrained/models/clay/src",
     "pretrained/models/clay/configs",
-    "detectron2",
     "mask2former",
     "panopticapi",
 ]

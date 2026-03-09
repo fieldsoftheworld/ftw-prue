@@ -57,13 +57,13 @@ Applied `ruff format .` to all 1st-party code (81 files).
 
 Merged the `prue-m2f` branch which adds a Mask2Former panoptic segmentation pipeline.
 
-### Vendored Code (modified — cannot use submodules)
+### Dependencies
 
-| Directory | Source | Why vendored |
-|-----------|--------|-------------|
-| `detectron2/` | [facebookresearch/detectron2](https://github.com/facebookresearch/detectron2) | Modified for multispectral (4/8-channel) satellite input |
-| `mask2former/` | [facebookresearch/Mask2Former](https://github.com/facebookresearch/Mask2Former) | Plugin with custom dataset mappers |
-| `panopticapi/` | [cocodataset/panopticapi](https://github.com/cocodataset/panopticapi) | Evaluation utilities |
+| Dependency | Strategy | Reason |
+|-----------|----------|--------|
+| detectron2 | pip dep (`git+https://github.com/facebookresearch/detectron2.git`) | Vendored copy was unmodified v0.6 (partial — missing `data/`); now installed from upstream |
+| mask2former | Vendored (modified) | Custom Swin `IN_CHANS` config for multispectral input |
+| panopticapi | Vendored | Evaluation utilities |
 
 ### 1st-Party Code Added
 
@@ -80,17 +80,23 @@ Merged the `prue-m2f` branch which adds a Mask2Former panoptic segmentation pipe
 
 ### Ruff Exclusions
 
-Added `detectron2/`, `mask2former/`, `panopticapi/` to ruff `extend-exclude` — vendored code is not formatted.
+Added `mask2former/`, `panopticapi/` to ruff `extend-exclude` — vendored code is not formatted.
 
 ### Dependency Group
 
-Added `[m2f]` optional dep group: `pillow`, `pycocotools`, `fvcore`, `iopath`. Detectron2 must be installed separately: `pip install -e detectron2/`.
+Added `[m2f]` optional dep group: `detectron2` (from GitHub), `pillow`, `pycocotools`, `fvcore`, `iopath`. Requires `--no-build-isolation` since detectron2 needs torch at build time.
+
+### Fixes
+
+- Removed vendored `detectron2/` (was unmodified, incomplete v0.6 — missing `data/` module)
+- Replaced `detectron2.data.detection_utils.read_geotiff` imports (never existed upstream) with `trainer.io_utils.read_geotiff`
 
 ### Removed
 
 | File | Reason |
 |------|--------|
 | `requirements.txt` | Redundant with `pyproject.toml` |
+| `detectron2/` | Unmodified upstream; now installed via pip |
 
 ## Files Removed
 

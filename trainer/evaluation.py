@@ -928,9 +928,9 @@ class FTWEvaluator(DatasetEvaluator):
                         rgb = (rgb * 255).astype(np.uint8)
                         input_image = rgb
                     elif dataset_dict.get("file_name", "").endswith(".tif"):
-                        from detectron2.data import detection_utils as utils
+                        from trainer.io_utils import read_geotiff
 
-                        image = utils.read_geotiff(dataset_dict["file_name"], format=None)
+                        image = read_geotiff(dataset_dict["file_name"], format=None)
                         # image shape: HWC or CHW? Ensure CHW
                         if image.ndim == 3 and image.shape[0] in [3, 4, 8]:
                             # CHW -> HWC

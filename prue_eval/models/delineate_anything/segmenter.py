@@ -18,11 +18,11 @@ from ...converters import convert_delineate_anything_output
 from ..registry import Segmenter, register_model
 
 try:
-    from ftw_tools.inference.models import DelineateAnything
+    from ftw.models.delineate_anything import DelineateAnything
 except ImportError:
     raise ImportError(
-        "DelineateAnything requires the ftw-baselines package. "
-        "Install it with: pip install git+https://github.com/fieldsoftheworld/ftw-baselines.git"
+        "DelineateAnything requires ftw-tools>=1.2.0. "
+        "Install it with: pip install 'ftw-tools>=1.2.0'"
     )
 
 

@@ -14,7 +14,9 @@ def get_object_level_metrics(y_true, y_pred, iou_threshold=0.5):
         tuple (int, int, int): Number of true positives, false positives, and false negatives.
     """
     if iou_threshold < 0.5:
-        raise ValueError("iou_threshold must be greater than 0.5")  # If we go lower than 0.5 then it is possible for a single prediction to match with multiple ground truths and we have to do de-duplication
+        raise ValueError(
+            "iou_threshold must be greater than 0.5"
+        )  # If we go lower than 0.5 then it is possible for a single prediction to match with multiple ground truths and we have to do de-duplication
     y_true_shapes = []
     for geom, val in rasterio.features.shapes(y_true):
         if val == 1:
@@ -60,6 +62,7 @@ def get_object_level_metrics(y_true, y_pred, iou_threshold=0.5):
 
     return (tps, fps, fns)
 
+
 def get_object_level_metrics_mpred(y_true, y_pred, iou_threshold=0.5):
     """Get object level metrics for a single mask / prediction pair.
 
@@ -72,7 +75,9 @@ def get_object_level_metrics_mpred(y_true, y_pred, iou_threshold=0.5):
         tuple (int, int, int): Number of true positives, false positives, and false negatives.
     """
     if iou_threshold < 0.5:
-        raise ValueError("iou_threshold must be greater than 0.5")  # If we go lower than 0.5 then it is possible for a single prediction to match with multiple ground truths and we have to do de-duplication
+        raise ValueError(
+            "iou_threshold must be greater than 0.5"
+        )  # If we go lower than 0.5 then it is possible for a single prediction to match with multiple ground truths and we have to do de-duplication
     y_true_shapes = []
     for geom, val in rasterio.features.shapes(y_true):
         if val == 1:

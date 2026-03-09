@@ -149,63 +149,58 @@ class CustomSemanticSegmentationTask(BaseTask):
         class_weights = None
         if self.hparams["class_weights"] is not None:
             class_weights = torch.tensor(self.hparams["class_weights"])
-        
+
         if loss == "ce":
             if self.hparams["class_weights"] is not None:
                 class_weights = torch.tensor(self.hparams["class_weights"])
             else:
                 class_weights = None
             ignore_value = -1000 if ignore_index is None else ignore_index
-            self.criterion = nn.CrossEntropyLoss(
-                ignore_index=ignore_value, weight=class_weights
-            )
-       
+            self.criterion = nn.CrossEntropyLoss(ignore_index=ignore_value, weight=class_weights)
+
         elif loss == "jaccard":
-            self.criterion = smp.losses.JaccardLoss(
-                mode="multiclass", classes=self.hparams["num_classes"]
-            )
+            self.criterion = smp.losses.JaccardLoss(mode="multiclass", classes=self.hparams["num_classes"])
         elif loss == "focal":
-            self.criterion = smp.losses.FocalLoss(
-                "multiclass", ignore_index=ignore_index, normalized=True
-            )
+            self.criterion = smp.losses.FocalLoss("multiclass", ignore_index=ignore_index, normalized=True)
         elif loss == "dice":
-            self.criterion = smp.losses.DiceLoss(mode="multiclass", ignore_index=ignore_index)     
+            self.criterion = smp.losses.DiceLoss(mode="multiclass", ignore_index=ignore_index)
 
         elif loss == "ce+dice":
-            self.dice_loss = smp.losses.DiceLoss(
-                "multiclass", ignore_index=ignore_index
-            )
+            self.dice_loss = smp.losses.DiceLoss("multiclass", ignore_index=ignore_index)
 
             if self.hparams["class_weights"] is not None:
                 class_weights = torch.tensor(self.hparams["class_weights"])
             else:
                 class_weights = None
             ignore_value = -1000 if ignore_index is None else ignore_index
-            self.ce_loss = nn.CrossEntropyLoss(
-                ignore_index=ignore_value, weight=class_weights
-            )
-            self.criterion = lambda y_pred, y_true: self.ce_loss(
-                y_pred, y_true
-            ) + self.dice_loss(y_pred, y_true) 
+            self.ce_loss = nn.CrossEntropyLoss(ignore_index=ignore_value, weight=class_weights)
+            self.criterion = lambda y_pred, y_true: self.ce_loss(y_pred, y_true) + self.dice_loss(y_pred, y_true)
 
         elif loss == "logcoshdice":
-            self.criterion = logCoshDice(mode="multiclass", 
-                                         classes=self.hparams["num_classes"],
-                                         class_weights=class_weights,
-                                         ignore_index=ignore_index)
+            self.criterion = logCoshDice(
+                mode="multiclass",
+                classes=self.hparams["num_classes"],
+                class_weights=class_weights,
+                ignore_index=ignore_index,
+            )
         elif loss == "logcoshdice+ce":
-            self.criterion = logCoshDiceCE(weight_ce=0.5, weight_dice=0.5,
-                                          mode="multiclass", 
-                                          classes=self.hparams["num_classes"],
-                                          class_weights=class_weights,
-                                          ignore_index=ignore_index)
+            self.criterion = logCoshDiceCE(
+                weight_ce=0.5,
+                weight_dice=0.5,
+                mode="multiclass",
+                classes=self.hparams["num_classes"],
+                class_weights=class_weights,
+                ignore_index=ignore_index,
+            )
         elif loss == "decode":
             import sys
             from pathlib import Path
+
             decode_path = Path(__file__).resolve().parents[2] / "decode"
             if str(decode_path) not in sys.path:
                 sys.path.insert(0, str(decode_path))
             from fractal_resunet.nn.loss.custom_aux_loss import MultiTaskLoss
+
             model_kwargs = self.hparams.get("model_kwargs", {})
             self.criterion = MultiTaskLoss(
                 depth=model_kwargs.get("depth", 5),
@@ -216,10 +211,10 @@ class CustomSemanticSegmentationTask(BaseTask):
         elif loss == "bce" or loss == "sam2":
             self.criterion = nn.BCELoss()
         else:
-            raise ValueError(f"Loss type '{loss}' is not valid. "
-                             "Currently supports: 'ce', 'jaccard', 'focal', 'dice', 'ce+dice', 'logcoshdice', 'logcoshdice+ce', 'decode', 'bce', 'sam2'."
+            raise ValueError(
+                f"Loss type '{loss}' is not valid. "
+                "Currently supports: 'ce', 'jaccard', 'focal', 'dice', 'ce+dice', 'logcoshdice', 'logcoshdice+ce', 'decode', 'bce', 'sam2'."
             )
-
 
     def configure_metrics(self) -> None:
         """Initialize the performance metrics."""
@@ -227,15 +222,9 @@ class CustomSemanticSegmentationTask(BaseTask):
         ignore_index: Optional[int] = self.hparams["ignore_index"]
 
         base_metrics = {
-            "precision": MulticlassPrecision(
-                num_classes, average=None, ignore_index=ignore_index
-            ),
-            "recall": MulticlassRecall(
-                num_classes, average=None, ignore_index=ignore_index
-            ),
-            "iou": MulticlassJaccardIndex(
-                num_classes, average=None, ignore_index=ignore_index
-            ),
+            "precision": MulticlassPrecision(num_classes, average=None, ignore_index=ignore_index),
+            "recall": MulticlassRecall(num_classes, average=None, ignore_index=ignore_index),
+            "iou": MulticlassJaccardIndex(num_classes, average=None, ignore_index=ignore_index),
         }
         self.train_metrics = MetricCollection(base_metrics, prefix="train/")
         self.val_metrics = self.train_metrics.clone(prefix="val/")
@@ -243,15 +232,9 @@ class CustomSemanticSegmentationTask(BaseTask):
 
         self.val_agg = MetricCollection(
             {
-                "precision_macro": MulticlassPrecision(
-                    num_classes, average="macro", ignore_index=ignore_index
-                ),
-                "recall_macro": MulticlassRecall(
-                    num_classes, average="macro", ignore_index=ignore_index
-                ),
-                "iou_macro": MulticlassJaccardIndex(
-                    num_classes, average="macro", ignore_index=ignore_index
-                ),
+                "precision_macro": MulticlassPrecision(num_classes, average="macro", ignore_index=ignore_index),
+                "recall_macro": MulticlassRecall(num_classes, average="macro", ignore_index=ignore_index),
+                "iou_macro": MulticlassJaccardIndex(num_classes, average="macro", ignore_index=ignore_index),
             },
             prefix="val/",
         )
@@ -292,9 +275,7 @@ class CustomSemanticSegmentationTask(BaseTask):
                 **model_kwargs,
             )
         elif model == "fcn":
-            self.model = FCN(
-                in_channels=in_channels, classes=num_classes, num_filters=num_filters
-            )
+            self.model = FCN(in_channels=in_channels, classes=num_classes, num_filters=num_filters)
         elif model == "upernet":
             self.model = smp.UPerNet(
                 encoder_name=backbone,
@@ -319,18 +300,20 @@ class CustomSemanticSegmentationTask(BaseTask):
                 **model_kwargs,
             )
 
-        
         elif model == "pretrained":
             from ..models.segmentor import SegmentationHead
-            self.model = SegmentationHead(num_classes=num_classes, 
-                                           dim=model_kwargs['hidden_dim'], 
-                                           patch_size=model_kwargs['patch_size'],
-                                           fusion_type=model_kwargs["fuser"], 
-                                           decoder_type=model_kwargs["decoder"],
-                                           original_input_size=model_kwargs['original_input_size']
-                                           )
+
+            self.model = SegmentationHead(
+                num_classes=num_classes,
+                dim=model_kwargs["hidden_dim"],
+                patch_size=model_kwargs["patch_size"],
+                fusion_type=model_kwargs["fuser"],
+                decoder_type=model_kwargs["decoder"],
+                original_input_size=model_kwargs["original_input_size"],
+            )
         elif model == "gfm":
             from pretrained.pretrained_factory import get_encoder
+
             self.backbone = get_encoder(
                 model_name=backbone,
                 device=self.device,
@@ -341,13 +324,14 @@ class CustomSemanticSegmentationTask(BaseTask):
             #     p.requires_grad = False
 
             from ..models.segmentor import SegmentationHead
+
             self.model = SegmentationHead(
                 num_classes=num_classes,
-                dim=model_kwargs['hidden_dim'],
-                patch_size=model_kwargs['patch_size'],
-                fusion_type=model_kwargs['fuser'],
-                decoder_type=model_kwargs['decoder'],
-                original_input_size=model_kwargs['original_input_size'],
+                dim=model_kwargs["hidden_dim"],
+                patch_size=model_kwargs["patch_size"],
+                fusion_type=model_kwargs["fuser"],
+                decoder_type=model_kwargs["decoder"],
+                original_input_size=model_kwargs["original_input_size"],
             )
 
             print("[GFM] Using standalone encoder + SegmentationHead decoder")
@@ -355,12 +339,12 @@ class CustomSemanticSegmentationTask(BaseTask):
         elif model == "decode":
             import sys
             from pathlib import Path
+
             decode_path = Path(__file__).resolve().parents[2] / "decode"
             if str(decode_path) not in sys.path:
                 sys.path.insert(0, str(decode_path))
-            from fractal_resunet.models.semanticsegmentation.FracTAL_ResUNet import (
-                FracTAL_ResUNet_cmtsk
-            )
+            from fractal_resunet.models.semanticsegmentation.FracTAL_ResUNet import FracTAL_ResUNet_cmtsk
+
             self.model = FracTAL_ResUNet_cmtsk(
                 nfilters_init=model_kwargs.get("nfilters_init", 32),
                 NClasses=num_classes,
@@ -380,40 +364,36 @@ class CustomSemanticSegmentationTask(BaseTask):
         elif model == "sam2":
             import sys
             from pathlib import Path
+
             sam2_repo_path = model_kwargs.get("sam2_repo_path", None)
             if sam2_repo_path and Path(sam2_repo_path).exists():
                 if str(sam2_repo_path) not in sys.path:
                     sys.path.insert(0, str(sam2_repo_path))
-            
+
             from sam2.build_sam import build_sam2_video_predictor
-            
+
             model_cfg = model_kwargs.get("model_cfg", "sam2_hiera_s.yaml")
             checkpoint_path = model_kwargs.get("checkpoint_path", None)
-            
-            self.model = build_sam2_video_predictor(
-                model_cfg, 
-                checkpoint=None,
-                device=self.device,
-                mode="train"
-            )
-            
+
+            self.model = build_sam2_video_predictor(model_cfg, checkpoint=None, device=self.device, mode="train")
+
             if checkpoint_path and Path(checkpoint_path).exists():
                 ckpt = torch.load(checkpoint_path, map_location="cpu")
                 state = ckpt["model"] if "model" in ckpt else ckpt
                 self.model.load_state_dict(state, strict=False)
                 print(f"[SAM-2] Loaded base checkpoint from {checkpoint_path}")
-            
+
             for p in self.model.image_encoder.parameters():
                 p.requires_grad = False
             for p in self.model.sam_prompt_encoder.parameters():
                 p.requires_grad = False
             for p in self.model.sam_mask_decoder.parameters():
                 p.requires_grad = True
-            
+
             self.model.image_encoder.eval()
             self.model.sam_prompt_encoder.eval()
             self.model.sam_mask_decoder.train()
-            
+
             print("[SAM-2] Using SAM-2 Video Predictor (mask decoder trainable)")
 
         else:
@@ -433,7 +413,6 @@ class CustomSemanticSegmentationTask(BaseTask):
         if patch_weights:
             self.transfer_weights(self.model, backbone)
 
-
     def _log_per_class(self, metrics_dict, split: str):
         for name, values in metrics_dict.items():
             clean_name = name.replace(f"{split}/", "")
@@ -444,53 +423,43 @@ class CustomSemanticSegmentationTask(BaseTask):
 
     def _sam2_forward_step(self, batch: Any, is_training: bool = True):
         """SAM-2 forward step for training/validation.
-        
+
         Args:
             batch: Batch containing window_a, window_b, points, point_labels, field_mask
             is_training: Whether this is a training step
-        
+
         Returns:
             loss: Loss tensor
             y_hat: Prediction logits [B, H, W] (sigmoid applied)
             y: Ground truth binary mask [B, H, W]
         """
         import torch.nn.functional as F
-        
+
         window_a = batch["window_a"]
         window_b = batch["window_b"]
         field_mask = batch["field_mask"]
         points = batch.get("points", None)
         point_labels = batch.get("point_labels", None)
-        
+
         img_a = window_a / 255.0
         img_b = window_b / 255.0
-        
+
         model = self.model
-        
+
         orig_H, orig_W = img_b.shape[-2:]
         target_size = model.image_size
-        
-        img_a_resized = F.interpolate(
-            img_a,
-            size=(target_size, target_size),
-            mode="bilinear",
-            align_corners=False
-        )
-        img_b_resized = F.interpolate(
-            img_b,
-            size=(target_size, target_size),
-            mode="bilinear",
-            align_corners=False
-        )
-        
+
+        img_a_resized = F.interpolate(img_a, size=(target_size, target_size), mode="bilinear", align_corners=False)
+        img_b_resized = F.interpolate(img_b, size=(target_size, target_size), mode="bilinear", align_corners=False)
+
         with torch.set_grad_enabled(False):
             _ = model.forward_image(img_a_resized)
-        
+
         with torch.set_grad_enabled(is_training):
             feats = model.forward_image(img_b_resized)
-            
+
             H, W = target_size, target_size
-            
+
             points_norm = points.clone()
             scale_x = target_size / orig_W
             scale_y = target_size / orig_H
@@ -499,7 +468,7 @@ class CustomSemanticSegmentationTask(BaseTask):
             points_norm[:, :, 0] /= target_size
             points_norm[:, :, 1] /= target_size
             points_norm *= model.image_size
-            
+
             field_mask_resized = F.interpolate(
                 field_mask.unsqueeze(1),
                 size=(target_size, target_size),
@@ -510,17 +479,17 @@ class CustomSemanticSegmentationTask(BaseTask):
                 size=(model.image_size // 4, model.image_size // 4),
                 mode="nearest",
             )
-            
+
             sparse, dense = model.sam_prompt_encoder(
                 points=(points_norm, point_labels),
                 boxes=None,
                 masks=mask_prompt,
             )
-            
+
             high_res_features = None
             if model.use_high_res_features_in_sam:
                 high_res_features = feats["backbone_fpn"][:2]
-            
+
             low_res_masks, _, _, _ = model.sam_mask_decoder(
                 image_embeddings=feats["vision_features"],
                 image_pe=model.sam_prompt_encoder.get_dense_pe(),
@@ -530,27 +499,22 @@ class CustomSemanticSegmentationTask(BaseTask):
                 repeat_image=False,
                 high_res_features=high_res_features,
             )
-            
+
             pred = torch.sigmoid(low_res_masks[:, 0])
             pred = F.interpolate(
-                pred.unsqueeze(1),
-                size=(orig_H, orig_W),
-                mode="bilinear",
-                align_corners=False
+                pred.unsqueeze(1), size=(orig_H, orig_W), mode="bilinear", align_corners=False
             ).squeeze(1)
-            
+
             loss = self.criterion(pred, field_mask)
-        
+
         return loss, pred, field_mask
-
-
 
     def forward(self, x):
         model_type = self.hparams["model"]
 
         if model_type == "gfm":
             feats = self.backbone(x)
-            return self.model({'feat': feats})
+            return self.model({"feat": feats})
 
         if model_type == "pretrained":
             return self.model(x)
@@ -563,10 +527,7 @@ class CustomSemanticSegmentationTask(BaseTask):
 
         return self.model(x)
 
-
-    def training_step(
-        self, batch: Any, batch_idx: int, dataloader_idx: int = 0
-    ) -> Tensor:
+    def training_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> Tensor:
         """Compute the training loss and additional metrics.
 
         Args:
@@ -578,9 +539,11 @@ class CustomSemanticSegmentationTask(BaseTask):
             The loss tensor.
         """
         if self.hparams["model"] == "pretrained" and "feat" not in batch:
-            raise AssertionError("Input type 'images' not supported for pretrained model. " \
-                                "We have to precompute features for the GFM model.")
-        
+            raise AssertionError(
+                "Input type 'images' not supported for pretrained model. "
+                "We have to precompute features for the GFM model."
+            )
+
         if self.hparams["model"] == "sam2":
             loss, y_hat, y = self._sam2_forward_step(batch, is_training=True)
             self.log(
@@ -595,7 +558,7 @@ class CustomSemanticSegmentationTask(BaseTask):
             y_2class = y.long()
             self.train_metrics.update(y_hat_2class, y_2class)
             return loss
-        
+
         if self.hparams["model"] == "gfm":
             if self.hparams["backbone"] == "clay":
                 x = {
@@ -618,12 +581,12 @@ class CustomSemanticSegmentationTask(BaseTask):
             y_seg = batch["mask"].squeeze(1)
             y_bound = batch["boundary"].squeeze(1)
             y_dist = batch["distance"].squeeze(1)
-            
+
             num_classes = self.hparams["num_classes"]
             presence_only = self.hparams.get("presence_only", False)
             one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only=presence_only)
             one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only)
-            
+
             labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1)]
             loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
             y_hat = y_hat_tuple[0]
@@ -644,9 +607,7 @@ class CustomSemanticSegmentationTask(BaseTask):
 
         return loss
 
-    def validation_step(
-        self, batch: Any, batch_idx: int, dataloader_idx: int = 0
-    ) -> None:
+    def validation_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> None:
         """Compute the validation loss and additional metrics.
 
         Args:
@@ -655,8 +616,10 @@ class CustomSemanticSegmentationTask(BaseTask):
             dataloader_idx: Index of the current dataloader.
         """
         if "image" in batch and self.hparams["model"] == "pretrained":
-            raise AssertionError("Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model.")
-        
+            raise AssertionError(
+                "Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model."
+            )
+
         if self.hparams["model"] == "sam2":
             loss, y_hat, y = self._sam2_forward_step(batch, is_training=False)
         else:
@@ -682,12 +645,16 @@ class CustomSemanticSegmentationTask(BaseTask):
                 y_seg = batch["mask"].squeeze(1)
                 y_bound = batch["boundary"].squeeze(1) if "boundary" in batch else None
                 y_dist = batch["distance"].squeeze(1) if "distance" in batch else None
-                
+
                 num_classes = self.hparams["num_classes"]
                 presence_only = self.hparams.get("presence_only", False)
                 one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only=presence_only)
-                one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only) if y_bound is not None else (None, None)
-                
+                one_hot_boundary, _ = (
+                    to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only)
+                    if y_bound is not None
+                    else (None, None)
+                )
+
                 labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1) if y_dist is not None else None]
                 loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
                 y_hat = y_hat_tuple[0]
@@ -734,20 +701,17 @@ class CustomSemanticSegmentationTask(BaseTask):
         ):
             datamodule = self.trainer.datamodule
             batch["prediction"] = y_hat.argmax(dim=1)
-            
+
             if self.hparams["model"] != "pretrained":
                 for key in ["image", "mask", "prediction"]:
                     batch[key] = batch[key].cpu()
                 sample = unbind_samples(batch)[0]
                 fig: Optional[Figure] = datamodule.plot(sample)
                 if fig:
-                    
-                    self.logger.experiment.log({
-                        f"val/sample_{batch_idx}": wandb.Image(fig),
-                        "global_step": self.global_step
-                    })
+                    self.logger.experiment.log(
+                        {f"val/sample_{batch_idx}": wandb.Image(fig), "global_step": self.global_step}
+                    )
                     plt.close(fig)
-
 
     def test_step(self, batch: Any, batch_idx: int, dataloader_idx: int = 0) -> None:
         """Compute the test loss and additional metrics.
@@ -758,8 +722,10 @@ class CustomSemanticSegmentationTask(BaseTask):
             dataloader_idx: Index of the current dataloader.
         """
         if "image" in batch and self.hparams["model"] == "pretrained":
-            raise AssertionError("Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model.")
-        
+            raise AssertionError(
+                "Input type 'images' not supported for pretrained model. We have to precompute features for the GFM model."
+            )
+
         if self.hparams["model"] == "sam2":
             loss, y_hat, y = self._sam2_forward_step(batch, is_training=False)
         else:
@@ -786,12 +752,16 @@ class CustomSemanticSegmentationTask(BaseTask):
                 y_seg = batch["mask"].squeeze(1)
                 y_bound = batch["boundary"].squeeze(1) if "boundary" in batch else None
                 y_dist = batch["distance"].squeeze(1) if "distance" in batch else None
-                
+
                 num_classes = self.hparams["num_classes"]
                 presence_only = self.hparams.get("presence_only", False)
                 one_hot_mask, valid_mask = to_one_hot(y_seg.unsqueeze(1), num_classes, presence_only=presence_only)
-                one_hot_boundary, _ = to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only) if y_bound is not None else (None, None)
-                
+                one_hot_boundary, _ = (
+                    to_one_hot(y_bound.unsqueeze(1), num_classes=2, presence_only=presence_only)
+                    if y_bound is not None
+                    else (None, None)
+                )
+
                 labels_list = [one_hot_mask, one_hot_boundary, y_dist.unsqueeze(1) if y_dist is not None else None]
                 loss, lseg, lbound, ldist = self.criterion(y_hat_tuple, labels_list, valid_mask)
                 y_hat = y_hat_tuple[0]
@@ -820,11 +790,9 @@ class CustomSemanticSegmentationTask(BaseTask):
             params = self.model.sam_mask_decoder.parameters()
         else:
             params = self.parameters()
-        
+
         optimizer = AdamW(params, lr=self.hparams["lr"], amsgrad=True)
-        scheduler = CosineAnnealingLR(
-            optimizer, T_max=self.hparams["patience"], eta_min=1e-6
-        )
+        scheduler = CosineAnnealingLR(optimizer, T_max=self.hparams["patience"], eta_min=1e-6)
         return {
             "optimizer": optimizer,
             "lr_scheduler": {"scheduler": scheduler, "monitor": self.monitor},
@@ -851,16 +819,8 @@ class CustomSemanticSegmentationTask(BaseTask):
         self.train_metrics.reset()
 
     def on_validation_epoch_end(self) -> None:
-        object_precision = (
-            self.val_tps / (self.val_tps + self.val_fps)
-            if (self.val_tps + self.val_fps) > 0
-            else 0
-        )
-        object_recall = (
-            self.val_tps / (self.val_tps + self.val_fns)
-            if (self.val_tps + self.val_fns) > 0
-            else 0
-        )
+        object_precision = self.val_tps / (self.val_tps + self.val_fps) if (self.val_tps + self.val_fps) > 0 else 0
+        object_recall = self.val_tps / (self.val_tps + self.val_fns) if (self.val_tps + self.val_fns) > 0 else 0
         object_f1 = (
             2 * object_precision * object_recall / (object_precision + object_recall)
             if (object_precision + object_recall) > 0
@@ -917,12 +877,8 @@ class CustomSemanticSegmentationTask(BaseTask):
                 if index == 0:
                     pretrained_conv1_weights = layer_w
                     new_conv1_weights = model_dict[encoder_key]
-                    new_conv1_weights[:, :3, :, :] = pretrained_conv1_weights[
-                        :, :3, :, :
-                    ]
-                    new_conv1_weights[:, 4:7, :, :] = pretrained_conv1_weights[
-                        :, :3, :, :
-                    ]
+                    new_conv1_weights[:, :3, :, :] = pretrained_conv1_weights[:, :3, :, :]
+                    new_conv1_weights[:, 4:7, :, :] = pretrained_conv1_weights[:, :3, :, :]
                     print(
                         encoder_key,
                         " First layer: ",

@@ -4,6 +4,7 @@ from .terrafm import terrafm_base, terrafm_large
 import os
 import sys
 
+
 def map_to_sentinel12(x):
     """
     Map a [B, 4, H, W] tensor with bands ['red', 'green', 'blue', 'nir']
@@ -13,10 +14,10 @@ def map_to_sentinel12(x):
     """
     # Sentinel-2 L2A 12-band order
     s2_band_order = ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8", "B8A", "B9", "B11", "B12"]
-    
+
     # Input band order
     input_bands = ["red", "green", "blue", "nir"]
-    
+
     # Mapping input band names to their Sentinel-2 index
     band_map = {
         "red": s2_band_order.index("B4"),
@@ -24,10 +25,10 @@ def map_to_sentinel12(x):
         "blue": s2_band_order.index("B2"),
         "nir": s2_band_order.index("B8"),
     }
-    
+
     B, _, H, W = x.shape
     x12 = torch.zeros(B, 12, H, W, device=x.device)
-    
+
     for i, band in enumerate(input_bands):
         x12[:, band_map[band]] = x[:, i]
 
@@ -35,7 +36,7 @@ def map_to_sentinel12(x):
 
 
 class TerraFMEncoderWrapper(nn.Module):
-    def __init__(self, ckpt_path, freeze_encoder="none",in_chans=4,device="cpu"):
+    def __init__(self, ckpt_path, freeze_encoder="none", in_chans=4, device="cpu"):
         super().__init__()
         self.model = terrafm_base(in_chans=in_chans)
 
@@ -43,20 +44,20 @@ class TerraFMEncoderWrapper(nn.Module):
             # Load pretrained weights
             state_dict = torch.load(ckpt_path, map_location=device)
             _ = self.model.load_state_dict(state_dict, strict=False)
-        
+
         self.in_chans = in_chans
         self.dim = self.model.embed_dim
         self.patch_size = self.model.patch_embed.patch_size
 
-        if freeze_encoder == 'all':
+        if freeze_encoder == "all":
             for param in self.model.parameters():
                 param.requires_grad = False
-        
-        elif freeze_encoder == 'exceptinput':
+
+        elif freeze_encoder == "exceptinput":
             for param in self.model.parameters():
                 param.requires_grad = False
             for param in self.model.patch_embed.parameters():
-                    param.requires_grad = True
+                param.requires_grad = True
         else:
             pass
 
@@ -85,5 +86,3 @@ class TerraFMEncoderWrapper(nn.Module):
             patches = torch.cat((patches_a, patches_b), dim=1)
 
         return patches
-
-

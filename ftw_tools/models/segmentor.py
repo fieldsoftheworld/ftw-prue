@@ -11,10 +11,13 @@ class MLPCombiner(nn.Module):
         super().__init__()
         hidden_dim = hidden_dim or 2 * D
         self.mlp = nn.Sequential(
-            nn.Linear(2 * D, hidden_dim), nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, D)
+            nn.Linear(2 * D, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, D),
         )
+
     def forward(self, x_2L_D):
         B, N2, D = x_2L_D.shape
         L = N2 // 2
@@ -27,12 +30,16 @@ class ResidualBlock(nn.Module):
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(dim, dim, 3, padding=1),
-            nn.BatchNorm2d(dim), nn.ReLU(inplace=True),
+            nn.BatchNorm2d(dim),
+            nn.ReLU(inplace=True),
             nn.Conv2d(dim, dim, 3, padding=1),
-            nn.BatchNorm2d(dim)
+            nn.BatchNorm2d(dim),
         )
         self.act = nn.ReLU(inplace=True)
-    def forward(self, x): return self.act(x + self.block(x))
+
+    def forward(self, x):
+        return self.act(x + self.block(x))
+
 
 class ConvLightDecoderHead(nn.Module):
     def __init__(self, dim, out_size=256, num_classes=3):
@@ -59,6 +66,7 @@ class ConvASPPDecoderHead(nn.Module):
         self.conv_ps = nn.Conv2d(hidden, C_out * r * r, 3, padding=1)
         self.shuffle = nn.PixelShuffle(r)
         self.out_conv = nn.Conv2d(C_out, num_classes, kernel_size=1)
+
     def forward(self, x_L_D):
         B, L, D = x_L_D.shape
         h = w = int(math.sqrt(L))
@@ -80,7 +88,7 @@ class LearnableFinalUpsample(nn.Module):
 
     def forward(self, x):
         x = self.up(x)
-        return F.interpolate(x, size=(self.out_size, self.out_size), mode='bilinear', align_corners=False)
+        return F.interpolate(x, size=(self.out_size, self.out_size), mode="bilinear", align_corners=False)
 
 
 class SegmentationHead(nn.Module):
@@ -88,12 +96,19 @@ class SegmentationHead(nn.Module):
     fusion_type: 'mlp'
     decoder_type: 'conv_w_aspp'
     """
-    def __init__(self, fusion_type="mlp", decoder_type="conv_w_aspp",
-                 dim=1024, patch_size=16, num_classes=3,
-                original_input_size=256):
+
+    def __init__(
+        self,
+        fusion_type="mlp",
+        decoder_type="conv_w_aspp",
+        dim=1024,
+        patch_size=16,
+        num_classes=3,
+        original_input_size=256,
+    ):
         super().__init__()
         assert fusion_type in ["mlp"]
-        assert decoder_type in ["conv_w_aspp","conv_light"]
+        assert decoder_type in ["conv_w_aspp", "conv_light"]
 
         self.decoder_type = decoder_type
         self.dim = dim
@@ -102,20 +117,17 @@ class SegmentationHead(nn.Module):
 
         if self.original_input_size != 256 and decoder_type == "conv_w_aspp":
             self.final_upsample = LearnableFinalUpsample(
-                in_ch=num_classes,
-                out_ch=num_classes,
-                in_size=self.original_input_size,
-                out_size=256
+                in_ch=num_classes, out_ch=num_classes, in_size=self.original_input_size, out_size=256
             )
         else:
             self.final_upsample = nn.Identity()
-        
+
         if fusion_type == "mlp":
-                self.fuse = MLPCombiner(D=dim)
-                self.fused_dim = dim
+            self.fuse = MLPCombiner(D=dim)
+            self.fused_dim = dim
         else:
             raise NotImplementedError(f"Fusion type '{fusion_type}' not implemented.")
-        
+
         # Decoder
         if decoder_type == "conv_w_aspp":
             self.decoder = ConvASPPDecoderHead(self.fused_dim, patch_size, num_classes)
@@ -159,17 +171,17 @@ if __name__ == "__main__":
         return total_params, trainable_params
 
     model_configs = {
-        "croma":    {"input": 120, "patch": 8,  "dim": 768,  "embed_hw": 15},
-        "galileo":  {"input": 256, "patch": 4,  "dim": 768,  "embed_hw": 64},
-        "decur":    {"input": 224, "patch": 16, "dim": 384,  "embed_hw": 14},
-        "dofa":     {"input": 224, "patch": 16, "dim": 1024, "embed_hw": 14},
-        "prithvi":  {"input": 224, "patch": 16, "dim": 1024, "embed_hw": 14},
-        "satlas":   {"input": 256, "patch": 16, "dim": 768,  "embed_hw": 16},
-        "softcon":  {"input": 224, "patch": 14, "dim": 384,  "embed_hw": 16},
-        "clay":     {"input": 256, "patch": 8,  "dim": 1024, "embed_hw": 32},
-        "dinov3":   {"input": 256, "patch": 16, "dim": 1024, "embed_hw": 16},
-        "terrafm":  {"input": 256, "patch": 16, "dim": 768,  "embed_hw": 16},
-        "terramind": {"input": 256, "patch": 16, "dim": 768,  "embed_hw": 16},
+        "croma": {"input": 120, "patch": 8, "dim": 768, "embed_hw": 15},
+        "galileo": {"input": 256, "patch": 4, "dim": 768, "embed_hw": 64},
+        "decur": {"input": 224, "patch": 16, "dim": 384, "embed_hw": 14},
+        "dofa": {"input": 224, "patch": 16, "dim": 1024, "embed_hw": 14},
+        "prithvi": {"input": 224, "patch": 16, "dim": 1024, "embed_hw": 14},
+        "satlas": {"input": 256, "patch": 16, "dim": 768, "embed_hw": 16},
+        "softcon": {"input": 224, "patch": 14, "dim": 384, "embed_hw": 16},
+        "clay": {"input": 256, "patch": 8, "dim": 1024, "embed_hw": 32},
+        "dinov3": {"input": 256, "patch": 16, "dim": 1024, "embed_hw": 16},
+        "terrafm": {"input": 256, "patch": 16, "dim": 768, "embed_hw": 16},
+        "terramind": {"input": 256, "patch": 16, "dim": 768, "embed_hw": 16},
     }
 
     B, num_classes = 2, 3
@@ -183,9 +195,11 @@ if __name__ == "__main__":
         tokens_per_view = embed_hw * embed_hw
         feats = torch.randn(B, 2, tokens_per_view, dim, device=device)
 
-        decoders= ["conv_w_aspp", "conv_light"]
+        decoders = ["conv_w_aspp", "conv_light"]
         for decoder_type in decoders:
-            print(f"\n🔹 Testing model={name:10s} | decdoer={decoder_type} | input={input_size} | patch={patch_size} | dim={dim} | tokens={embed_hw}x{embed_hw}")
+            print(
+                f"\n🔹 Testing model={name:10s} | decdoer={decoder_type} | input={input_size} | patch={patch_size} | dim={dim} | tokens={embed_hw}x{embed_hw}"
+            )
             model = SegmentationHead(
                 fusion_type="mlp",
                 decoder_type=decoder_type,

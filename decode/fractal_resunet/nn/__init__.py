@@ -10,10 +10,18 @@ from .loss.ftnmt_loss import ftnmt_loss
 from .loss.mtsk_loss import mtsk_loss
 
 __all__ = [
-    'FracTALResNet_unit', 'ResNet_v2_block',
-    'FTAttention2D', 'RelFTAttention2D',
-    'combine_layers', 'combine_layers_wthFusion',
-    'Conv2DNormed', 'DownSample', 'UpSample',
-    'FTanimoto', 'PSP_Pooling', 'SigmoidCrisp',
-    'ftnmt_loss', 'mtsk_loss'
+    "FracTALResNet_unit",
+    "ResNet_v2_block",
+    "FTAttention2D",
+    "RelFTAttention2D",
+    "combine_layers",
+    "combine_layers_wthFusion",
+    "Conv2DNormed",
+    "DownSample",
+    "UpSample",
+    "FTanimoto",
+    "PSP_Pooling",
+    "SigmoidCrisp",
+    "ftnmt_loss",
+    "mtsk_loss",
 ]

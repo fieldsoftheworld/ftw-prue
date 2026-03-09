@@ -1,7 +1,7 @@
 [project]
 name = "ftw-prue"
 version = "0.1.0"
-description = "PRUE: A Practical Recipe for Uncovering the Predicting Power of Foundation Models in Remote Sensing - Field Boundary Segmentation Benchmark on FTW"
+description = "PRUE: A Practical Recipe for Field Boundary Segmentation at Scale (CVPR 2025)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -29,6 +29,7 @@ dependencies = [
     "wandb>=0.15",
     "opencv-python>=4.8",
     "kornia>=0.7",
+    "python-box>=7.0",
 ]
 
 [project.optional-dependencies]
@@ -39,14 +40,18 @@ gfm = [
     "huggingface-hub>=0.20",
 ]
 sam2 = [
-    # SAM2 must be installed separately from https://github.com/facebookresearch/sam2
+    "sam2>=1.0",
+    "hydra-core>=1.3",
+]
+decode = [
+    # DECODE (FracTAL ResUNet) has no extra deps beyond core
 ]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "ruff>=0.4",
+    "ruff>=0.8",
 ]
-all = ["ftw-prue[gfm,dev]"]
+all = ["ftw-prue[gfm,sam2,dev]"]
 
 [project.scripts]
 ftw = "ftw_tools.cli:cli"
@@ -58,12 +63,25 @@ build-backend = "setuptools.backends._legacy:_Backend"
 [tool.setuptools.packages.find]
 include = ["ftw_tools*", "pretrained*", "decode*"]
 
+# --- Ruff: formatting only, no linting ---
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+# Only format 1st-party code; exclude submodules and vendored code
+extend-exclude = [
+    "pretrained/models/galileo_benchmark/galileo",
+    "pretrained/models/clay/src",
+    "pretrained/models/clay/configs",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W"]
+# Disable all lint rules — ruff is used for formatting only
+select = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

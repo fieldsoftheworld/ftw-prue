@@ -7,6 +7,7 @@ class FtnmtLoss(nn.Module):
     """
     Fractal Tanimoto (with complement/dual) loss in PyTorch.
     """
+
     def __init__(self, depth=5, smooth=1e-5, dims=(1, 2, 3)):
         """
         Args:
@@ -35,21 +36,21 @@ class FtnmtLoss(nn.Module):
         """
         Base fractal Tanimoto coefficient (averaged over depths).
         """
-        tpl = self.inner_prod(preds, labels)  
-        tpp = self.inner_prod(preds, preds)   
-        tll = self.inner_prod(labels, labels) 
+        tpl = self.inner_prod(preds, labels)
+        tpp = self.inner_prod(preds, preds)
+        tll = self.inner_prod(labels, labels)
 
         num = tpl + self.smooth
         denum = 0.0
 
         for d in range(self.depth):
-            a = 2.0 ** d
+            a = 2.0**d
             b = -(2.0 * a - 1.0)
             denom_d = a * (tpp + tll) + b * tpl + self.smooth
             denum += 1.0 / denom_d
 
         result = num * denum * self.scale
-        return torch.mean(result) 
+        return torch.mean(result)
 
     def forward(self, preds, labels):
         """
@@ -67,11 +68,12 @@ class MultiTaskLoss(nn.Module):
     """
     Multi-task loss wrapper with task-specific losses.
     """
+
     def __init__(self, depth=5, n_classes=2):
         super().__init__()
 
         self.ftnmt_loss = FtnmtLoss(depth=depth, dims=(1, 2, 3))
-        self.distance_loss = nn.MSELoss() 
+        self.distance_loss = nn.MSELoss()
         self.n_classes = n_classes
 
     def forward(self, predictions, labels):
@@ -79,7 +81,7 @@ class MultiTaskLoss(nn.Module):
         Args:
             predictions: list of 3 tensors [segm_pred, boundary_pred, distance_pred]
             labels: list of 3 tensors [segm_label, boundary_label, distance_label]
-            
+
             NOTE: We no longer concatenate labels.
         """
         pred_segm, pred_bound, pred_dist = predictions
@@ -87,7 +89,7 @@ class MultiTaskLoss(nn.Module):
 
         # Task 1: Segmentation loss (using Ftnmt)
         loss_segm = self.ftnmt_loss(pred_segm, label_segm)
-        
+
         # Task 2: Boundary loss (using Ftnmt)
         loss_bound = self.ftnmt_loss(pred_bound, label_bound)
 

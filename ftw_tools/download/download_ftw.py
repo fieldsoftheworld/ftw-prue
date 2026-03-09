@@ -69,13 +69,9 @@ def download(out, clean_download, countries):
             elapsed_time = time.time() - start_time
             speed = current / elapsed_time if elapsed_time > 0 else 0
             progress = current / total
-            bar_width = int(
-                (width - 40)
-            )  # Adjust width for the text and make the bar 30% shorter
+            bar_width = int((width - 40))  # Adjust width for the text and make the bar 30% shorter
             block = int(round(bar_width * progress))
-            progress_message = (
-                f"{current / (1024**3):.3f} GB / {total / (1024**3):.3f} GB"
-            )
+            progress_message = f"{current / (1024**3):.3f} GB / {total / (1024**3):.3f} GB"
             speed_message = f"Speed: {speed / (1024**2):.2f} MB/s"
             bar = f"[{'#' * block}{'-' * (bar_width - block)}]"
             print(f"{progress_message} {bar} {speed_message}", end="\r")
@@ -146,9 +142,7 @@ def download(out, clean_download, countries):
         base_url = "https://data.source.coop/kerner-lab/fields-of-the-world-archive/"
 
         # tqdm progress for the entire dataset
-        overall_progress = tqdm(
-            total=len(country_names), desc="Overall Download Progress", unit="country"
-        )
+        overall_progress = tqdm(total=len(country_names), desc="Overall Download Progress", unit="country")
 
         for country in country_names:
             url = f"{base_url}{country}.zip"
@@ -156,17 +150,13 @@ def download(out, clean_download, countries):
 
             # Check if the file already exists locally
             if os.path.exists(local_file_path):
-                logger.info(
-                    f"File {local_file_path} already exists, skipping download."
-                )
+                logger.info(f"File {local_file_path} already exists, skipping download.")
                 print(f"File {local_file_path} already exists, skipping download.")
             else:
                 # Download the file
                 if download_file(url, local_file_path):
                     # Verify the file checksum
-                    download_and_verify_md5(
-                        local_file_path, country.lower(), checksum_data
-                    )
+                    download_and_verify_md5(local_file_path, country.lower(), checksum_data)
 
             # Update the overall progress
             overall_progress.update(1)
@@ -176,9 +166,7 @@ def download(out, clean_download, countries):
     # Main script
     # Step 1: Download the checksum.md5 file
     local_md5_file_path = os.path.join(root_folder_path, "checksum.md5")
-    md5_file_url = (
-        "https://data.source.coop/kerner-lab/fields-of-the-world-archive/checksum.md5"
-    )
+    md5_file_url = "https://data.source.coop/kerner-lab/fields-of-the-world-archive/checksum.md5"
 
     if not os.path.exists(local_md5_file_path):
         if not download_file(md5_file_url, local_md5_file_path):
@@ -196,9 +184,7 @@ def download(out, clean_download, countries):
         print("Downloading all available countries...")
     else:
         country_names = [
-            country.lower().strip()
-            for country in countries.split(",")
-            if country.lower().strip() in ALL_COUNTRIES
+            country.lower().strip() for country in countries.split(",") if country.lower().strip() in ALL_COUNTRIES
         ]
         print(f"Downloading selected countries: {country_names}")
 

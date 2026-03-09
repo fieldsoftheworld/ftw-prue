@@ -25,20 +25,16 @@ class SegmentEncoder(nn.Module):
     """
 
     def __init__(  # noqa: PLR0913
-        self,
-        ckpt_path=None
+        self, ckpt_path=None
     ):
-        super().__init__(
-        )
+        super().__init__()
 
-        self.device = (
-            torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        )
+        self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         if ckpt_path is None:
             from ...path_config import get_model_path
+
             ckpt_path = str(get_model_path("dinov3"))
-        self.encoder = torch.hub.load('facebookresearch/dinov3', 'dinov3_vitl16', weights=ckpt_path)
-     
+        self.encoder = torch.hub.load("facebookresearch/dinov3", "dinov3_vitl16", weights=ckpt_path)
 
     def forward(self, datacube):
         """
@@ -54,15 +50,15 @@ class SegmentEncoder(nn.Module):
         cube = datacube
 
         B, C, H, W = cube.shape
-       
+
         if C == 3:
             # Patchify and create embeddings per patch
-            patches = self.encoder.forward_features(cube.float())['x_norm_patchtokens'] # [B L D]
+            patches = self.encoder.forward_features(cube.float())["x_norm_patchtokens"]  # [B L D]
         elif C == 2 * 3:
             # Patchify and create embeddings per patch
-            patches_a = self.encoder.forward_features(cube[:,:3,:,:].float())['x_norm_patchtokens'] 
-            
-            patches_b = self.encoder.forward_features(cube[:,3:,:,:].float())['x_norm_patchtokens'] 
-            patches = torch.cat((patches_a, patches_b), dim=1) # [B 2*L D] #now L is 2*L
+            patches_a = self.encoder.forward_features(cube[:, :3, :, :].float())["x_norm_patchtokens"]
+
+            patches_b = self.encoder.forward_features(cube[:, 3:, :, :].float())["x_norm_patchtokens"]
+            patches = torch.cat((patches_a, patches_b), dim=1)  # [B 2*L D] #now L is 2*L
 
         return patches

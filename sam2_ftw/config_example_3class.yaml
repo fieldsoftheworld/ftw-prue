@@ -30,7 +30,6 @@ model:
     patience: 50
     model_kwargs:
       # SAM-2 specific parameters
-      sam2_repo_path: null  # Set to path to sam2 repo
       model_cfg: "sam2_hiera_s.yaml"  # SAM-2 config file name
       checkpoint_path: null  # Set to path to base SAM-2 checkpoint (e.g., sam2.1_hiera_small.pt)
 data:

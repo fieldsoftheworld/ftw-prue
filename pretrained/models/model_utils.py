@@ -46,6 +46,7 @@ def preprocess_general(sample: dict, norm_const=3000.0) -> dict:
     sample["image"] = sample["image"] / norm_const
     return sample
 
+
 class preprocess_dinov3:
     def __init__(self, mean=None, std=None, norm_constant=3000.0):
         self.mean = torch.as_tensor(mean if mean is not None else [0.430, 0.411, 0.296], dtype=torch.float32)
@@ -75,6 +76,7 @@ class preprocess_clay:
 
 class preprocess_galileo:
     """Preprocessing for Galileo benchmark models (identity - handled in wrapper)."""
+
     def __call__(self, sample: dict) -> dict:
         return sample
 
@@ -88,12 +90,12 @@ def normalize_timestamp(date, hour=False):
 
     return (math.sin(week), math.cos(week)), (math.sin(hour), math.cos(hour))
 
+
 def normalize_latlon(lat, lon):
     lat = lat * np.pi / 180
     lon = lon * np.pi / 180
 
     return (math.sin(lat), math.cos(lat)), (math.sin(lon), math.cos(lon))
-
 
 
 def get_median_date(start: str, end: str) -> datetime:
@@ -124,13 +126,15 @@ def extract_season_dates(json_path):
         "window_b": get_median_date(window_b_start, window_b_end),
     }
 
+
 def prepare_general_sample(
     image_path: str,
     preprocess: callable,
 ):
     image, lat, lon = load_image(image_path)
-    image = preprocess({"image":image})
+    image = preprocess({"image": image})
     return image
+
 
 def prepare_clay_sample(
     image_path: str,
@@ -186,7 +190,7 @@ def prepare_clay_sample(
     latlon_encoded = normalize_latlon(lat, lon)
     lat_vec = torch.tensor(latlon_encoded[0], dtype=torch.float32)
     lon_vec = torch.tensor(latlon_encoded[1], dtype=torch.float32)
-    latlon_vec = torch.cat([lat_vec, lon_vec], dim=-1) 
+    latlon_vec = torch.cat([lat_vec, lon_vec], dim=-1)
 
     return {
         "platform": "sentinel-2-l2a",
@@ -230,7 +234,7 @@ def prepare_clay_batch(
     """
     if data_root is None:
         data_root = str(get_data_root())
-    
+
     images, times, latlons = [], [], []
 
     for image_path in image_paths:
@@ -277,24 +281,26 @@ def prepare_clay_batch(
     }
 
 
-def get_model_and_preprocess(model_name: str, device: torch.device, metadata_path: str = None, weights_path: str = None):
+def get_model_and_preprocess(
+    model_name: str, device: torch.device, metadata_path: str = None, weights_path: str = None
+):
     """
     Return encoder, preprocessing function, and metadata tensors.
-    
+
     Args:
         model_name: Name of the model
         device: torch.device
         metadata_path: Path to metadata YAML (defaults to path_config.get_metadata_path())
         weights_path: Path to model weights (defaults to path_config.get_model_path())
-    
+
     Returns:
         Tuple of (encoder, preprocess_fn, gsd, waves)
     """
     model_name = model_name.lower()
-    
+
     if metadata_path is None:
         metadata_path = str(get_metadata_path())
-    
+
     if weights_path is None:
         weights_path = str(get_model_path(model_name))
 
@@ -330,10 +336,7 @@ def get_model_and_preprocess(model_name: str, device: torch.device, metadata_pat
     elif model_name == "terrafm":
         weights = weights_path
         preprocess_fn = preprocess_general
-        encoder = TerraFMEncoder(
-            ckpt_path=weights, in_chans=4,
-            device=device, freeze_encoder="all"
-        ).to(device)
+        encoder = TerraFMEncoder(ckpt_path=weights, in_chans=4, device=device, freeze_encoder="all").to(device)
         encoder.eval()
         return encoder, preprocess_fn, None, None
 
@@ -352,115 +355,90 @@ def get_model_and_preprocess(model_name: str, device: torch.device, metadata_pat
 
     elif model_name == "croma":
         from .galileo_benchmark.galileo_wrappers import CROMAEncoder
+
         weights = weights_path
         preprocess_fn = preprocess_galileo()
-        encoder = CROMAEncoder(
-            ckpt_path=weights,
-            size="base",
-            freeze_encoder="all",
-            device=device
-        )
+        encoder = CROMAEncoder(ckpt_path=weights, size="base", freeze_encoder="all", device=device)
         encoder.eval()
         return encoder, preprocess_fn, None, None
 
     elif model_name == "decur":
         from .galileo_benchmark.galileo_wrappers import DeCurEncoder
+
         weights = weights_path
         preprocess_fn = preprocess_galileo()
-        encoder = DeCurEncoder(
-            ckpt_path=weights,
-            freeze_encoder="all",
-            device=device
-        )
+        encoder = DeCurEncoder(ckpt_path=weights, freeze_encoder="all", device=device)
         encoder.eval()
         return encoder, preprocess_fn, None, None
 
     elif model_name == "dofa":
         from .galileo_benchmark.galileo_wrappers import DOFAEncoder
+
         weights = weights_path
         preprocess_fn = preprocess_galileo()
-        encoder = DOFAEncoder(
-            ckpt_path=weights,
-            size="base",
-            freeze_encoder="all",
-            device=device
-        )
+        encoder = DOFAEncoder(ckpt_path=weights, size="base", freeze_encoder="all", device=device)
         encoder.eval()
         return encoder, preprocess_fn, None, None
 
     elif model_name == "prithvi":
         from .galileo_benchmark.galileo_wrappers import PrithviEncoder
+
         weights = weights_path
         preprocess_fn = preprocess_galileo()
-        encoder = PrithviEncoder(
-            ckpt_path=weights,
-            freeze_encoder="all",
-            device=device
-        )
+        encoder = PrithviEncoder(ckpt_path=weights, freeze_encoder="all", device=device)
         encoder.eval()
         return encoder, preprocess_fn, None, None
 
     elif model_name == "satlas":
         from .galileo_benchmark.galileo_wrappers import SatlasEncoder
+
         weights = weights_path
         preprocess_fn = preprocess_galileo()
-        encoder = SatlasEncoder(
-            ckpt_path=weights,
-            size="base",
-            freeze_encoder="all",
-            device=device
-        )
+        encoder = SatlasEncoder(ckpt_path=weights, size="base", freeze_encoder="all", device=device)
         encoder.eval()
         return encoder, preprocess_fn, None, None
 
     elif model_name == "softcon":
         from .galileo_benchmark.galileo_wrappers import SoftConEncoder
+
         weights = weights_path
         preprocess_fn = preprocess_galileo()
-        encoder = SoftConEncoder(
-            ckpt_path=weights,
-            size="base",
-            freeze_encoder="all",
-            device=device
-        )
+        encoder = SoftConEncoder(ckpt_path=weights, size="base", freeze_encoder="all", device=device)
         encoder.eval()
         return encoder, preprocess_fn, None, None
 
     elif model_name == "galileo":
         from .galileo_benchmark.galileo_wrappers import GalileoEncoder
+
         weights = weights_path
         preprocess_fn = preprocess_galileo()
-        encoder = GalileoEncoder(
-            ckpt_path=weights,
-            freeze_encoder="all",
-            device=device
-        )
+        encoder = GalileoEncoder(ckpt_path=weights, freeze_encoder="all", device=device)
         encoder.eval()
         return encoder, preprocess_fn, None, None
 
     else:
         raise ValueError(f"Unsupported model: {model_name}")
-    
+
 
 def get_preprocessor(preprocessing: str, metadata_path: str = None):
     """
     Return only the preprocessing function and metadata tensors (no model).
-    
+
     Args:
         preprocessing: Name of preprocessing method
         metadata_path: Path to metadata YAML (defaults to path_config.get_metadata_path())
-    
+
     Returns:
         Tuple of (preprocess_fn, gsd, waves)
     """
     if metadata_path is None:
         metadata_path = str(get_metadata_path())
-    
+
     # Handle "none" string (in addition to None)
     if preprocessing == "none" or preprocessing is None:
         preprocess_fn = None
         return preprocess_fn, None, None
-    
+
     if preprocessing == "unet":
         preprocess_fn = preprocess_general
         return preprocess_fn, None, None

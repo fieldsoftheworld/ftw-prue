@@ -20,16 +20,34 @@ Benchmark for field boundary segmentation on the [Fields of the World (FTW)](htt
 ## Installation
 
 ```bash
-pip install -e .
+# Clone with submodules (galileo benchmark models)
+git clone --recurse-submodules https://github.com/fieldsoftheworld/ftw-prue.git
+cd ftw-prue
 
-# With foundation model support
-pip install -e ".[gfm]"
+# Core install (training + eval with standard models)
+uv pip install -e .
 
-# With dev tools (testing, linting)
-pip install -e ".[dev]"
+# With foundation model encoders (Clay, TerraFM, TerraMind, etc.)
+uv pip install -e ".[gfm]"
+
+# With SAM2 support
+uv pip install -e ".[sam2]"
+
+# With dev tools (testing, formatting)
+uv pip install -e ".[dev]"
+
+# Everything
+uv pip install -e ".[all]"
 ```
 
-For SAM2 support, install [SAM2](https://github.com/facebookresearch/sam2) separately.
+> Works with plain `pip install -e .` too if you don't use [uv](https://docs.astral.sh/uv/).
+
+### Formatting
+
+```bash
+# Format 1st-party code only (excludes submodules/vendored code)
+ruff format .
+```
 
 ## Data Setup
 
@@ -166,7 +184,6 @@ Per-model embedding extraction scripts in [`GFMs/`](GFMs/).
 | `FTW_DATA_DIR` / `FTW_DATA_ROOT` | `./data/ftw` | FTW dataset root |
 | `GFM_CKPT_DIR` | `./gfm_ckpts/encoders` | GFM encoder checkpoints |
 | `CLAY_CKPT_PATH` | - | Clay finetuned checkpoint (for eval_clay.sh) |
-| `SAM2_REPO_PATH` | - | Path to cloned SAM2 repo |
 | `SAM2_CHECKPOINT_PATH` | - | SAM2 base checkpoint |
 
 ## Testing

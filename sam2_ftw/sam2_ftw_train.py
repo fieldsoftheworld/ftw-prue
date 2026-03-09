@@ -20,9 +20,6 @@ import rasterio
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-sam2_repo_path = Path(os.environ.get("SAM2_REPO_PATH", "."))
-sys.path.insert(0, str(sam2_repo_path))
-
 from sam2.build_sam import build_sam2_video_predictor
 from sam2.modeling.backbones.utils import PatchEmbed
 
@@ -30,7 +27,7 @@ DATA_ROOT = os.environ.get("FTW_DATA_ROOT", "./data/ftw")
 CHECKPOINT_PATH = os.environ.get("SAM2_CHECKPOINT_PATH", None)
 MODEL_CFG = os.environ.get("SAM2_MODEL_CFG", "sam2_hiera_s.yaml")
 
-CHANNELS = 4 # 3 for RGB, 4 for RGB-NIR
+CHANNELS = 4  # 3 for RGB, 4 for RGB-NIR
 COUNTRIES = ["france"]
 OUTPUT_DIR = "sam2_ftw"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -100,9 +97,7 @@ def main():
     train_data = load_ftw_data(DATA_ROOT, COUNTRIES, "train")
     assert len(train_data) > 0
 
-    predictor = build_sam2_video_predictor(
-        MODEL_CFG, checkpoint=None, device=device
-    )
+    predictor = build_sam2_video_predictor(MODEL_CFG, checkpoint=None, device=device)
 
     ckpt = torch.load(CHECKPOINT_PATH, map_location="cpu")
     state = ckpt["model"] if "model" in ckpt else ckpt
@@ -111,9 +106,9 @@ def main():
     model = predictor
 
     if CHANNELS == 4:
-        emb_dim = 96 #whatever config setting has; 96 default
+        emb_dim = 96  # whatever config setting has; 96 default
         old_pemb = model.image_encoder.trunk.patch_embed
-        new_pemb = PatchEmbed(in_chans=4,embed_dim=emb_dim)
+        new_pemb = PatchEmbed(in_chans=4, embed_dim=emb_dim)
 
         with torch.no_grad():
             # copy existing weights
@@ -140,13 +135,11 @@ def main():
     model.sam_prompt_encoder.eval()
     model.sam_mask_decoder.train()
 
-    params = list(model.sam_mask_decoder.parameters()) 
+    params = list(model.sam_mask_decoder.parameters())
     if CHANNELS == 4:
         params += list(model.image_encoder.trunk.patch_embed.parameters())
 
-    optimizer = torch.optim.AdamW(
-        params, lr=LR, weight_decay=WEIGHT_DECAY
-    )
+    optimizer = torch.optim.AdamW(params, lr=LR, weight_decay=WEIGHT_DECAY)
 
     scaler = torch.cuda.amp.GradScaler(enabled=(device == "cuda"))
 
@@ -241,8 +234,7 @@ def main():
         if step % 50 == 0:
             print(f"Step {step} | Loss {loss.item():.4f} | mIoU {mean_iou:.4f}")
 
-    torch.save(model.sam_mask_decoder.state_dict(),
-               os.path.join(OUTPUT_DIR, "mask_decoder_final.pt"))
+    torch.save(model.sam_mask_decoder.state_dict(), os.path.join(OUTPUT_DIR, "mask_decoder_final.pt"))
 
     print("Training complete")
 

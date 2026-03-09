@@ -70,7 +70,7 @@ def get_pixel_resolution_from_image(image_path: str) -> tuple:
 def find_checkpoints(logs_dir: str):
     """
     Find all checkpoints and their configs in the logs directory.
-    
+
     Returns:
         list of tuples: (checkpoint_path, config_path, model_type, backbone, num_filters)
     """
@@ -86,13 +86,15 @@ def find_checkpoints(logs_dir: str):
                         config_data = yaml.safe_load(conf_file)
 
                     trainer_init = config_data.get("model").get("init_args")
-                    checkpoints.append((
-                        checkpoint_path,
-                        config_file_path,
-                        trainer_init["model"],
-                        trainer_init["backbone"],
-                        trainer_init["num_filters"]
-                    ))
+                    checkpoints.append(
+                        (
+                            checkpoint_path,
+                            config_file_path,
+                            trainer_init["model"],
+                            trainer_init["backbone"],
+                            trainer_init["num_filters"],
+                        )
+                    )
                 else:
                     print(f"Missing config for checkpoint {root}")
     return checkpoints
@@ -114,19 +116,12 @@ class DummyDataset(Dataset):
 
 
 def benchmark_model(
-    model,
-    model_type,
-    dataloader,
-    device,
-    pixel_size_meters,
-    image_height,
-    image_width,
-    is_delineate_anything=False
+    model, model_type, dataloader, device, pixel_size_meters, image_height, image_width, is_delineate_anything=False
 ):
     """Benchmark a single model."""
     if not is_delineate_anything:
         model = model.eval().to(device)
-    
+
     tic = time.time()
     for images in dataloader:
         if is_delineate_anything:
@@ -151,168 +146,159 @@ def benchmark_model(
     area_per_image_m2 = (image_height * pixel_size_meters) * (image_width * pixel_size_meters)
     area_per_image_km2 = area_per_image_m2 / 1e6
     throughput_km2_per_sec = throughput * area_per_image_km2
-    
+
     print(f"Throughput: {throughput_km2_per_sec:.2f} km²/second")
     print(f"  Images/sec: {throughput:.2f}")
     print(f"  Time: {elapsed_time:.2f} seconds")
-    
+
     return {
         "throughput_images_per_sec": throughput,
         "throughput_km2_per_sec": throughput_km2_per_sec,
-        "elapsed_time": elapsed_time
+        "elapsed_time": elapsed_time,
     }
 
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark FTW model throughput")
-    
+
     # Two modes: either logs-dir OR weights (with optional config-file)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--logs-dir", help="Directory containing logs/checkpoints (e.g., 'logs/')")
     group.add_argument("--weights", help="Path to model checkpoint file (.ckpt or .pt)")
-    
+
     parser.add_argument("--config-file", help="Path to config.yaml file (optional, only needed for some .ckpt files)")
     parser.add_argument("--sample-image", required=True, help="Path to sample GeoTIFF to extract pixel resolution")
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size (default: 64)")
     parser.add_argument("--num-batches", type=int, default=50, help="Number of batches to process (default: 50)")
     parser.add_argument("--device", default="cuda:0", help="Device to run on (default: cuda:0)")
-    parser.add_argument("--output-csv", default="throughput_benchmark_results.csv", help="Output CSV file (default: throughput_benchmark_results.csv)")
+    parser.add_argument(
+        "--output-csv",
+        default="throughput_benchmark_results.csv",
+        help="Output CSV file (default: throughput_benchmark_results.csv)",
+    )
     parser.add_argument("--num-workers", type=int, default=4, help="Number of dataloader workers (default: 4)")
     parser.add_argument("--channels", type=int, default=8, help="Number of input channels (default: 8)")
     parser.add_argument("--height", type=int, default=256, help="Image height in pixels (default: 256)")
     parser.add_argument("--width", type=int, default=256, help="Image width in pixels (default: 256)")
     parser.add_argument("--num-classes", type=int, default=3, help="Number of classes (default: 3)")
     args = parser.parse_args()
-    
+
     # Validate arguments
     if args.weights and not args.logs_dir:
         # When using --weights, we're in single model mode
         pass
-    
+
     # Get pixel resolution
     res_x, res_y, pixel_size_meters = get_pixel_resolution_from_image(args.sample_image)
-    
+
     # Setup device
     device = torch.device(args.device)
-    
+
     # Create dataset and dataloader
     ds = DummyDataset(
-        num_samples=args.batch_size * args.num_batches,
-        channels=args.channels,
-        height=args.height,
-        width=args.width
+        num_samples=args.batch_size * args.num_batches, channels=args.channels, height=args.height, width=args.width
     )
     dataloader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
-    
+
     rows = []
-    
+
     if args.logs_dir and not args.weights:
         # Mode 1: Find checkpoints in logs directory
         print(f"\nSearching for checkpoints in {args.logs_dir}...")
         checkpoints = find_checkpoints(args.logs_dir)
         print(f"Found {len(checkpoints)} checkpoints")
-        
+
         if len(checkpoints) == 0:
             print("No checkpoints found. Exiting.")
             return
-        
+
         # Get unique model configurations
         unique_configs = {}
         for checkpoint_path, config_path, model_type, backbone, num_filters in checkpoints:
             key = (model_type, backbone, num_filters)
             if key not in unique_configs:
                 unique_configs[key] = (checkpoint_path, config_path, model_type, backbone, num_filters)
-        
+
         print(f"Found {len(unique_configs)} unique model configurations")
         for model_type, backbone, num_filters in unique_configs.keys():
             print(f"  - Model: {model_type}, Backbone: {backbone}, Filters: {num_filters}")
-        
+
         # Benchmark each unique model configuration
         for checkpoint_path, config_path, model_type, backbone, num_filters in unique_configs.values():
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"Benchmarking: Model={model_type}, Backbone={backbone}, Filters={num_filters}")
             print(f"  Checkpoint: {checkpoint_path}")
-            print(f"{'='*60}")
-            
+            print(f"{'=' * 60}")
+
             # Load model from checkpoint
-            task = CustomSemanticSegmentationTask.load_from_checkpoint(
-                checkpoint_path,
-                map_location="cpu"
-            )
+            task = CustomSemanticSegmentationTask.load_from_checkpoint(checkpoint_path, map_location="cpu")
             model = task.model
-            
-            results = benchmark_model(
-                model, model_type, dataloader, device,
-                pixel_size_meters, args.height, args.width
+
+            results = benchmark_model(model, model_type, dataloader, device, pixel_size_meters, args.height, args.width)
+
+            rows.append(
+                {
+                    "model": model_type,
+                    "backbone": backbone,
+                    "num_filters": num_filters,
+                    "checkpoint": checkpoint_path,
+                    **results,
+                }
             )
-            
-            rows.append({
-                "model": model_type,
-                "backbone": backbone,
-                "num_filters": num_filters,
-                "checkpoint": checkpoint_path,
-                **results
-            })
-    
+
     if args.weights:
         # Mode 2: Load single model from checkpoint file
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Loading model from checkpoint: {args.weights}")
-        print(f"{'='*60}")
-        
+        print(f"{'=' * 60}")
+
         # Determine model type based on file extension and content
         weights_path = Path(args.weights)
         is_delineate_anything = False
         model_type = "unknown"
         backbone = "unknown"
         num_filters = "unknown"
-        
+
         if weights_path.suffix == ".pt":
             # Check if it's a DelineateAnything model (YOLO-based)
             try:
                 import ultralytics
-                
+
                 # Determine which variant based on filename
                 if "delineate_anything_s" in weights_path.name.lower() or "yolo11n" in weights_path.name.lower():
                     model_name = "DelineateAnything-S"
                 else:
                     model_name = "DelineateAnything"
-                
+
                 print(f"Loading DelineateAnything model: {model_name}")
-                
+
                 # Load YOLO model directly from file path
                 yolo_model = ultralytics.YOLO(str(weights_path))
                 yolo_model.to(device)
                 yolo_model.eval()
                 yolo_model.fuse()
-                
+
                 # Create DelineateAnything wrapper
                 model = DelineateAnything(
-                    model=model_name,
-                    patch_size=(args.height, args.width),
-                    resize_factor=2,
-                    device=args.device
+                    model=model_name, patch_size=(args.height, args.width), resize_factor=2, device=args.device
                 )
                 # Replace the model with our loaded one
                 model.model = yolo_model
-                
+
                 is_delineate_anything = True
                 model_type = model_name
                 backbone = "yolo11"
                 num_filters = "N/A"
-                
+
             except Exception as e:
                 print(f"Failed to load as DelineateAnything: {e}")
                 raise
         elif weights_path.suffix == ".ckpt":
             # Load FTW Lightning checkpoint
             try:
-                task = CustomSemanticSegmentationTask.load_from_checkpoint(
-                    args.weights,
-                    map_location="cpu"
-                )
+                task = CustomSemanticSegmentationTask.load_from_checkpoint(args.weights, map_location="cpu")
                 model = task.model
-                
+
                 # Get model type from checkpoint or config
                 if args.config_file and Path(args.config_file).exists():
                     with open(args.config_file, "r") as f:
@@ -329,7 +315,7 @@ def main():
                         model_type = hparams.get("model", "unknown")
                         backbone = hparams.get("backbone", "unknown")
                         num_filters = hparams.get("num_filters", "unknown")
-                
+
             except Exception as e:
                 print(f"Failed to load as Lightning checkpoint: {e}")
                 # Try loading with load_model_from_checkpoint as fallback
@@ -339,22 +325,29 @@ def main():
                 num_filters = "unknown"
         else:
             raise ValueError(f"Unsupported model file format: {weights_path.suffix}. Expected .ckpt or .pt")
-        
+
         print(f"Model: {model_type}, Backbone: {backbone}, Filters: {num_filters}")
-        
+
         results = benchmark_model(
-            model, model_type, dataloader, device,
-            pixel_size_meters, args.height, args.width,
-            is_delineate_anything=is_delineate_anything
+            model,
+            model_type,
+            dataloader,
+            device,
+            pixel_size_meters,
+            args.height,
+            args.width,
+            is_delineate_anything=is_delineate_anything,
         )
-        
-        rows.append({
-            "model": model_type,
-            "backbone": backbone,
-            "num_filters": num_filters,
-            "checkpoint": args.weights,
-            **results
-        })
+
+        rows.append(
+            {
+                "model": model_type,
+                "backbone": backbone,
+                "num_filters": num_filters,
+                "checkpoint": args.weights,
+                **results,
+            }
+        )
 
     # Save results
     df = pd.DataFrame(rows)

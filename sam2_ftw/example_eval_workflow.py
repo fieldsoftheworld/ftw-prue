@@ -27,7 +27,6 @@ inference_state = predictor.init_state(video_path=video_path)
 dtype = next(predictor.parameters()).dtype
 lowres_side_length = predictor.image_size // 4
 for mask_idx, mask_result in enumerate(auto_masks):
-
     # Get mask into form expected by the model
     mask_tensor = torch.tensor(mask_result["segmentation"], dtype=dtype, device=device)
     lowres_mask = torch.nn.functional.interpolate(

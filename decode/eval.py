@@ -13,11 +13,9 @@ import csv
 import os
 
 
-
 from fractal_resunet.models.semanticsegmentation.FracTAL_ResUNet import FracTAL_ResUNet_cmtsk as decode_model
 from data_module import FTWMultiCountryDataset
 from fractal_resunet.nn.loss.custom_aux_loss import MultiTaskLoss
-
 
 
 with open("logs-decode/exp0910-2classes-2win/config.yaml", "r") as f:
@@ -48,6 +46,7 @@ model = decode_model(
 
 model.load_state_dict(torch.load(checkpoint_path, map_location=device))
 model.eval()
+
 
 def get_object_level_metrics(y_true, y_pred, iou_threshold=0.5):
     """Compute TP, FP, FN counts for object-level metrics."""
@@ -86,6 +85,7 @@ def get_object_level_metrics(y_true, y_pred, iou_threshold=0.5):
     fps = len(y_pred_shapes) - len(matched_js)
     return tps, fps, fns
 
+
 def run_test(model, test_loaders, save_dir, presence_only_countries=None):
     """
     Evaluate per-country metrics and save results to CSV.
@@ -96,21 +96,27 @@ def run_test(model, test_loaders, save_dir, presence_only_countries=None):
 
     with open(results_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "Test country",
-            "Pixel IoU",
-            "Pixel precision",
-            "Pixel recall",
-            "Object precision",
-            "Object recall",
-        ])
+        writer.writerow(
+            [
+                "Test country",
+                "Pixel IoU",
+                "Pixel precision",
+                "Pixel recall",
+                "Object precision",
+                "Object recall",
+            ]
+        )
 
         for country, loader in test_loaders.items():
-            metrics = torchmetrics.MetricCollection({
-                "iou": torchmetrics.classification.MulticlassJaccardIndex(num_classes=2, average="none").to(device),
-                "precision": torchmetrics.classification.MulticlassPrecision(num_classes=2, average="none").to(device),
-                "recall": torchmetrics.classification.MulticlassRecall(num_classes=2, average="none").to(device),
-            })
+            metrics = torchmetrics.MetricCollection(
+                {
+                    "iou": torchmetrics.classification.MulticlassJaccardIndex(num_classes=2, average="none").to(device),
+                    "precision": torchmetrics.classification.MulticlassPrecision(num_classes=2, average="none").to(
+                        device
+                    ),
+                    "recall": torchmetrics.classification.MulticlassRecall(num_classes=2, average="none").to(device),
+                }
+            )
 
             all_tps, all_fps, all_fns = 0, 0, 0
 
@@ -175,6 +181,7 @@ def run_test(model, test_loaders, save_dir, presence_only_countries=None):
 
             writer.writerow(row)
 
+
 presence_only_countries = ["brazil", "india", "kenya", "rwanda"]
 
 test_loaders = {}
@@ -196,4 +203,3 @@ for country in cfg["data"]["countries"]:
     )
 
 run_test(model, test_loaders, save_dir, presence_only_countries)
-

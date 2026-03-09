@@ -30,14 +30,8 @@ class RasterLULCFilter:
         collection_name: str = "io-lulc-annual-v02",
         save_lulc_tif: bool = False,
     ):
-        assert collection_name in self.LULC_PROVIDER, (
-            f"Collection name must be one of {self.LULC_PROVIDER}"
-        )
-        self.LULC_CLASS = (
-            self.LULC_CLASS_IO
-            if collection_name == "io-lulc-annual-v02"
-            else self.LULC_CLASS_ESA
-        )
+        assert collection_name in self.LULC_PROVIDER, f"Collection name must be one of {self.LULC_PROVIDER}"
+        self.LULC_CLASS = self.LULC_CLASS_IO if collection_name == "io-lulc-annual-v02" else self.LULC_CLASS_ESA
         self.input_path = input_path
         self.catalog = pystac_client.Client.open(
             "https://planetarycomputer.microsoft.com/api/stac/v1",
@@ -47,9 +41,7 @@ class RasterLULCFilter:
         # Get bounds from input geotiff file with classification results for fields
         with rio.open(self.input_path) as src:
             self.src_bounds = src.bounds
-            self.bounds_4326 = rio.warp.transform_bounds(
-                src.crs, "EPSG:4326", *src.bounds
-            )
+            self.bounds_4326 = rio.warp.transform_bounds(src.crs, "EPSG:4326", *src.bounds)
             self.src_crs = src.crs
         lulc = self.load_lulc(collection_name)
         self.filter_raster_by_lulc(self.input_path, lulc, output_path, save_lulc_tif)
@@ -64,9 +56,7 @@ class RasterLULCFilter:
         Args:
             collection_name (str): Name of the collection ('io-lulc-annual-v02' or 'esa-worldcover')
         """
-        search = self.catalog.search(
-            collections=[collection_name], bbox=self.bounds_4326, limit=10
-        )
+        search = self.catalog.search(collections=[collection_name], bbox=self.bounds_4326, limit=10)
         items = search.item_collection()
 
         # Define asset key depending on collection
@@ -80,9 +70,7 @@ class RasterLULCFilter:
         # Load data from asset
         ds = rioxarray.open_rasterio(asset_href)
         # Transform bounds to the size of the raster
-        minx, miny, maxx, maxy = warp.transform_bounds(
-            self.src_crs, ds.rio.crs, *self.src_bounds
-        )
+        minx, miny, maxx, maxy = warp.transform_bounds(self.src_crs, ds.rio.crs, *self.src_bounds)
         clipped_ds = ds.rio.clip_box(minx=minx, miny=miny, maxx=maxx, maxy=maxy)  # type: ignore
 
         return clipped_ds
@@ -202,9 +190,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=str, required=True)
     parser.add_argument("--out", type=str, required=True)
     parser.add_argument("--overwrite", type=bool, required=False, default=False)
-    parser.add_argument(
-        "--collection_name", type=str, required=False, default="io-lulc-annual-v02"
-    )
+    parser.add_argument("--collection_name", type=str, required=False, default="io-lulc-annual-v02")
     parser.add_argument("--save_lulc_tif", type=bool, required=False, default=False)
     args = parser.parse_args()
     input_file = args.input

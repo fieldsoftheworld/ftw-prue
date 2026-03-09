@@ -84,7 +84,7 @@ class FTWDataModule(LightningDataModule):
         self.metadata_path = metadata_path
         self.sam2_max_image_size = kwargs.pop("sam2_max_image_size", 1024)
         self.sam2_num_points = kwargs.pop("sam2_num_points", 1)
-        self.sam2_mode = (temporal_options == "sam2")
+        self.sam2_mode = temporal_options == "sam2"
 
         if self.input_type == "images" and not self.sam2_mode:
             # for the temporal option windowA, windowB and median we will have 4 channel input
@@ -131,16 +131,13 @@ class FTWDataModule(LightningDataModule):
                 print(aug)
 
             self.train_aug = K.AugmentationSequential(*augs, data_keys=None)
-            self.aug = K.AugmentationSequential(
-                K.Normalize(mean=self.mean, std=self.std), data_keys=None
-            )
+            self.aug = K.AugmentationSequential(K.Normalize(mean=self.mean, std=self.std), data_keys=None)
 
-        if self.input_type in ["features", "images_noaug"] or self.sam2_mode: 
+        if self.input_type in ["features", "images_noaug"] or self.sam2_mode:
             # No augmentations for features, GFM experiments, and SAM-2
             augs = []
             self.train_aug = K.AugmentationSequential(*augs, data_keys=None)
             self.aug = K.AugmentationSequential(data_keys=None)
-
 
     def setup(self, stage: str):
         if stage in ["fit"]:

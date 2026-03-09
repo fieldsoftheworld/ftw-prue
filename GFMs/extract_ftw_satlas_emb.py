@@ -9,24 +9,48 @@ from ftw_tools.settings import ALL_COUNTRIES
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-s2_band_names = [
-    "B01", "B02", "B03", "B04", "B05", "B06", "B07",
-    "B08", "B08A", "B09", "B10", "B11", "B12"
-]
+s2_band_names = ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B08A", "B09", "B10", "B11", "B12"]
 
 OURS_S2_MEAN = [
-    1395.34, 1395.34, 1338.40, 1343.09, 1543.86, 2186.20, 2525.09,
-    2410.33, 2750.28, 2750.28, 2234.91, 2234.91, 1474.53,
+    1395.34,
+    1395.34,
+    1338.40,
+    1343.09,
+    1543.86,
+    2186.20,
+    2525.09,
+    2410.33,
+    2750.28,
+    2750.28,
+    2234.91,
+    2234.91,
+    1474.53,
 ]
 OURS_S2_STD = [
-    917.70, 917.70, 913.29, 1092.68, 1047.22, 1048.01, 1143.69,
-    1098.97, 1204.47, 1204.47, 1145.97, 1145.97, 980.24,
+    917.70,
+    917.70,
+    913.29,
+    1092.68,
+    1047.22,
+    1048.01,
+    1143.69,
+    1098.97,
+    1204.47,
+    1204.47,
+    1145.97,
+    1145.97,
+    980.24,
 ]
 
 imputes = [
-    ("B04", "B05"), ("B04", "B06"), ("B08", "B07"),
-    ("B08", "B08A"), ("B08", "B09"), ("B08", "B10"),
-    ("B08", "B11"), ("B08", "B12")
+    ("B04", "B05"),
+    ("B04", "B06"),
+    ("B08", "B07"),
+    ("B08", "B08A"),
+    ("B08", "B09"),
+    ("B08", "B10"),
+    ("B08", "B11"),
+    ("B08", "B12"),
 ]
 
 
@@ -46,9 +70,7 @@ def impute_bands(image_list, names_list, imputes, all_bands):
 
 
 def process_embeddings(emb, size=(256, 256)):
-    emb = torch.nn.functional.interpolate(
-        emb.unsqueeze(0), size=size, mode="bilinear", align_corners=False
-    ).squeeze(0)
+    emb = torch.nn.functional.interpolate(emb.unsqueeze(0), size=size, mode="bilinear", align_corners=False).squeeze(0)
     return emb
 
 
@@ -72,7 +94,7 @@ def generate_embedding(tif_path, output_path, model):
             patch_embeddings = model(s2=s2_full.unsqueeze(0))
 
         b, n, d = patch_embeddings.shape
-        p = int(n ** 0.5)
+        p = int(n**0.5)
         emb_img = patch_embeddings.view(b, p, p, d).permute(0, 3, 1, 2)[0]
 
         emb_resized = emb_img
@@ -86,9 +108,10 @@ def generate_embedding(tif_path, output_path, model):
     except Exception as e:
         print(f"Failed {tif_path}: {type(e).__name__}: {e}")
 
+
 def process_country(country: str, base_dir: Path, wrapper):
     country_dir = base_dir / "ftw" / country / "s2_images"
-    for window in [ "window_b", "window_a"]:
+    for window in ["window_b", "window_a"]:
         in_dir = country_dir / window
         if not in_dir.exists():
             continue
@@ -105,17 +128,14 @@ def process_country(country: str, base_dir: Path, wrapper):
                 continue
             generate_embedding(str(in_path), str(out_path), wrapper)
 
+
 if __name__ == "__main__":
     countries = ALL_COUNTRIES
 
     base_dir = Path("/path/to/FTW-Dataset")
     ckpt_base_dir = Path("/path/to/baseline_models")
 
-    wrapper = SatlasWrapper(
-        weights_path=ckpt_base_dir / "satlas",
-        size="tiny",
-        do_pool=False
-    ).cuda()
+    wrapper = SatlasWrapper(weights_path=ckpt_base_dir / "satlas", size="tiny", do_pool=False).cuda()
 
     for country in countries:
         process_country(country, base_dir, wrapper)

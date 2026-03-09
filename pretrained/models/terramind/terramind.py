@@ -22,7 +22,13 @@ class SegmentEncoder(nn.Module):
             [BLUE, GREEN, RED, NIR_BROAD].
     """
 
-    def __init__(self, model_type="terramind_v1_base", modalities=["S2L2A"], bands={"S2L2A":["BLUE", "GREEN", "RED", "NIR_BROAD"]}, pretrained=True):  # noqa: PLR0913, ARG002
+    def __init__(
+        self,
+        model_type="terramind_v1_base",
+        modalities=["S2L2A"],
+        bands={"S2L2A": ["BLUE", "GREEN", "RED", "NIR_BROAD"]},
+        pretrained=True,
+    ):  # noqa: PLR0913, ARG002
         """
         Initialize the SegmentEncoder.
 
@@ -72,6 +78,4 @@ class SegmentEncoder(nn.Module):
             last_layer_patches_b = patches_b[-1]  # Take the last layer's output
             return torch.stack([last_layer_patches_a, last_layer_patches_b], dim=1)  # (B, 2, num_patches, embed_dim)
         else:
-            raise ValueError(
-                f"Expected 4/8 channels [BLUE, GREEN, RED, NIR_BROAD], got C={C}."
-            )
+            raise ValueError(f"Expected 4/8 channels [BLUE, GREEN, RED, NIR_BROAD], got C={C}.")

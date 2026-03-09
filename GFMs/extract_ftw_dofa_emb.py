@@ -9,21 +9,35 @@ from ftw_tools.settings import ALL_COUNTRIES
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-s2_band_names = [
-    "B01", "B02", "B03", "B04", "B05", "B06", "B07",
-    "B08", "B08A", "B09", "B10", "B11", "B12"
-]
+s2_band_names = ["B01", "B02", "B03", "B04", "B05", "B06", "B07", "B08", "B08A", "B09", "B10", "B11", "B12"]
 
-S2_MEAN = np.array([
-    114.1099739 , 114.81779093, 126.63977424,  84.33539309,
-     97.84789168, 103.94461911, 101.435633  ,  72.32804172,
-     56.66528851
-])
+S2_MEAN = np.array(
+    [
+        114.1099739,
+        114.81779093,
+        126.63977424,
+        84.33539309,
+        97.84789168,
+        103.94461911,
+        101.435633,
+        72.32804172,
+        56.66528851,
+    ]
+)
 
-S2_STD = np.array([
-    77.84352553, 69.96844919, 67.42465279, 64.57022983, 61.72545487,
-    61.34187099, 60.29744676, 47.88519516, 42.55886798
-])
+S2_STD = np.array(
+    [
+        77.84352553,
+        69.96844919,
+        67.42465279,
+        64.57022983,
+        61.72545487,
+        61.34187099,
+        60.29744676,
+        47.88519516,
+        42.55886798,
+    ]
+)
 
 while len(S2_MEAN) < 13:
     S2_MEAN = np.append(S2_MEAN, np.mean(S2_MEAN))
@@ -33,9 +47,14 @@ OURS_S2_MEAN = S2_MEAN
 OURS_S2_STD = S2_STD
 
 imputes = [
-    ("B04", "B05"), ("B04", "B06"), ("B08", "B07"),
-    ("B08", "B08A"), ("B08", "B09"), ("B08", "B10"),
-    ("B08", "B11"), ("B08", "B12")
+    ("B04", "B05"),
+    ("B04", "B06"),
+    ("B08", "B07"),
+    ("B08", "B08A"),
+    ("B08", "B09"),
+    ("B08", "B10"),
+    ("B08", "B11"),
+    ("B08", "B12"),
 ]
 
 
@@ -55,9 +74,7 @@ def impute_bands(image_list, names_list, imputes, all_bands):
 
 
 def process_embeddings(emb, size=(256, 256)):
-    emb = torch.nn.functional.interpolate(
-        emb.unsqueeze(0), size=size, mode="bilinear", align_corners=False
-    ).squeeze(0)
+    emb = torch.nn.functional.interpolate(emb.unsqueeze(0), size=size, mode="bilinear", align_corners=False).squeeze(0)
     return emb
 
 
@@ -81,7 +98,7 @@ def generate_embedding(tif_path, output_path, model):
             patch_embeddings = model(s2=s2_full.unsqueeze(0))
 
         b, n, d = patch_embeddings.shape
-        p = int(n ** 0.5)
+        p = int(n**0.5)
         emb_img = patch_embeddings.view(b, p, p, d).permute(0, 3, 1, 2)[0]
 
         emb_resized = emb_img
@@ -94,6 +111,7 @@ def generate_embedding(tif_path, output_path, model):
 
     except Exception as e:
         print(f"Failed {tif_path}: {type(e).__name__}: {e}")
+
 
 def process_country(country: str, base_dir: Path, wrapper):
     country_dir = base_dir / "ftw" / country / "s2_images"
@@ -114,17 +132,14 @@ def process_country(country: str, base_dir: Path, wrapper):
                 continue
             generate_embedding(str(in_path), str(out_path), wrapper)
 
+
 if __name__ == "__main__":
     countries = ALL_COUNTRIES
 
     base_dir = Path("/path/to/FTW-Dataset")
     ckpt_base_dir = Path("/path/to/baseline_models")
 
-    wrapper = DOFAWrapper(
-        weights_path=ckpt_base_dir / "dofa",
-        size="large",
-        do_pool=False
-    ).cuda()
+    wrapper = DOFAWrapper(weights_path=ckpt_base_dir / "dofa", size="large", do_pool=False).cuda()
 
     for country in countries:
         process_country(country, base_dir, wrapper)

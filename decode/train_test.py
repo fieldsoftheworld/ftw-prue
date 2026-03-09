@@ -41,6 +41,7 @@ model = decode_model(
     in_channels=cfg["data"]["in_channels"],
 ).to(device)
 
+
 def make_loader(split):
     dataset = FTWMultiCountryDataset(
         root_dir=cfg["data"]["root_dir"],
@@ -55,12 +56,13 @@ def make_loader(split):
         dataset,
         batch_size=cfg["train"]["batch_size"],
         shuffle=(split == "train"),
-        num_workers=cfg["train"]["num_workers"]
+        num_workers=cfg["train"]["num_workers"],
     )
 
+
 train_loader = make_loader("train")
-val_loader   = make_loader("val")
-test_loader  = make_loader("test")
+val_loader = make_loader("val")
+test_loader = make_loader("test")
 
 criterion = MultiTaskLoss(
     depth=cfg["model"]["depth"],
@@ -72,6 +74,7 @@ criterion = MultiTaskLoss(
 optimizer = optim.Adam(model.parameters(), lr=cfg["train"]["lr"])
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg["train"]["num_epochs"])
 lrs = []
+
 
 def to_one_hot(tensor, num_classes, presence_only):
     """
@@ -97,8 +100,9 @@ def to_one_hot(tensor, num_classes, presence_only):
     one_hot.scatter_(1, tensor_proc.long(), 1)
     return one_hot, valid_mask.unsqueeze(1)
 
+
 train_csv = open(save_dir / "train_loss.csv", "w", newline="")
-val_csv   = open(save_dir / "val_loss.csv", "w", newline="")
+val_csv = open(save_dir / "val_loss.csv", "w", newline="")
 train_writer, val_writer = csv.writer(train_csv), csv.writer(val_csv)
 train_writer.writerow(["epoch", "total", "seg", "bound", "dist"])
 val_writer.writerow(["epoch", "total", "seg", "bound", "dist"])
@@ -116,9 +120,16 @@ try:
             if cfg["data"]["in_channels"] == 4:
                 images = win_a if np.random.randint(0, 10) % 2 == 0 else win_b
 
-            images, mask, boundary, distance = images.to(device), mask.to(device), boundary.to(device), distance.to(device)
+            images, mask, boundary, distance = (
+                images.to(device),
+                mask.to(device),
+                boundary.to(device),
+                distance.to(device),
+            )
 
-            one_hot_mask, valid_mask_segm = to_one_hot(mask, num_classes=cfg["data"]["n_classes"], presence_only=cfg["data"]["presence_only"])
+            one_hot_mask, valid_mask_segm = to_one_hot(
+                mask, num_classes=cfg["data"]["n_classes"], presence_only=cfg["data"]["presence_only"]
+            )
             one_hot_boundary, _ = to_one_hot(boundary, num_classes=2, presence_only=cfg["data"]["presence_only"])
 
             labels_list = [one_hot_mask, one_hot_boundary, distance]
@@ -147,9 +158,16 @@ try:
                 if cfg["data"]["in_channels"] == 4:
                     images = win_a if np.random.randint(0, 10) % 2 == 0 else win_b
 
-                images, mask, boundary, distance = images.to(device), mask.to(device), boundary.to(device), distance.to(device)
+                images, mask, boundary, distance = (
+                    images.to(device),
+                    mask.to(device),
+                    boundary.to(device),
+                    distance.to(device),
+                )
 
-                one_hot_mask, valid_mask_segm = to_one_hot(mask, num_classes=cfg["data"]["n_classes"], presence_only=cfg["data"]["presence_only"])
+                one_hot_mask, valid_mask_segm = to_one_hot(
+                    mask, num_classes=cfg["data"]["n_classes"], presence_only=cfg["data"]["presence_only"]
+                )
                 one_hot_boundary, _ = to_one_hot(boundary, num_classes=2, presence_only=cfg["data"]["presence_only"])
 
                 labels_list = [one_hot_mask, one_hot_boundary, distance]
@@ -205,6 +223,7 @@ plt.close()
 #### Country wise test
 #######################
 
+
 def get_object_level_metrics(y_true, y_pred, iou_threshold=0.5):
     """Compute TP, FP, FN counts for object-level metrics."""
     if iou_threshold < 0.5:
@@ -242,6 +261,7 @@ def get_object_level_metrics(y_true, y_pred, iou_threshold=0.5):
     fps = len(y_pred_shapes) - len(matched_js)
     return tps, fps, fns
 
+
 def run_test(model, test_loaders, save_dir, presence_only_countries=None):
     """
     Evaluate per-country metrics and save results to CSV.
@@ -252,21 +272,27 @@ def run_test(model, test_loaders, save_dir, presence_only_countries=None):
 
     with open(results_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "Test country",
-            "Pixel IoU",
-            "Pixel precision",
-            "Pixel recall",
-            "Object precision",
-            "Object recall",
-        ])
+        writer.writerow(
+            [
+                "Test country",
+                "Pixel IoU",
+                "Pixel precision",
+                "Pixel recall",
+                "Object precision",
+                "Object recall",
+            ]
+        )
 
         for country, loader in test_loaders.items():
-            metrics = torchmetrics.MetricCollection({
-                "iou": torchmetrics.classification.MulticlassJaccardIndex(num_classes=2, average="none").to(device),
-                "precision": torchmetrics.classification.MulticlassPrecision(num_classes=2, average="none").to(device),
-                "recall": torchmetrics.classification.MulticlassRecall(num_classes=2, average="none").to(device),
-            })
+            metrics = torchmetrics.MetricCollection(
+                {
+                    "iou": torchmetrics.classification.MulticlassJaccardIndex(num_classes=2, average="none").to(device),
+                    "precision": torchmetrics.classification.MulticlassPrecision(num_classes=2, average="none").to(
+                        device
+                    ),
+                    "recall": torchmetrics.classification.MulticlassRecall(num_classes=2, average="none").to(device),
+                }
+            )
 
             all_tps, all_fps, all_fns = 0, 0, 0
 
@@ -331,6 +357,7 @@ def run_test(model, test_loaders, save_dir, presence_only_countries=None):
 
             writer.writerow(row)
 
+
 test_loaders = {}
 
 
@@ -354,4 +381,3 @@ for country in cfg["data"]["countries"]:
     )
 
 run_test(model, test_loaders, save_dir, presence_only_countries)
-

@@ -57,10 +57,12 @@ def parse_args():
     return parser.parse_args()
 
 
-def compute_embeddings(model_name: str, data_path: str = None, metadata_path: str = None, output_dir: str = None, batch_size: int = 32):
+def compute_embeddings(
+    model_name: str, data_path: str = None, metadata_path: str = None, output_dir: str = None, batch_size: int = 32
+):
     """
     Compute embeddings for FTW dataset using specified model.
-    
+
     Args:
         model_name: Name of the model to use
         data_path: Path to FTW data directory (defaults to path_config.get_data_root())
@@ -70,13 +72,13 @@ def compute_embeddings(model_name: str, data_path: str = None, metadata_path: st
     """
     if data_path is None:
         data_path = str(get_data_root())
-    
+
     if metadata_path is None:
         metadata_path = str(get_metadata_path())
-    
+
     if output_dir is None:
         output_dir = f"./precomputed_feats/{model_name}"
-    
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     encoder, preprocess, gsd, waves = get_model_and_preprocess(model_name, device, metadata_path)
 

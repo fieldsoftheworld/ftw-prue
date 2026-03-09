@@ -8,6 +8,7 @@ import rasterio
 from scipy import ndimage
 from scipy.ndimage import maximum_filter, minimum_filter
 
+
 def get_boundary(mask):
     m = mask.copy()
     m[m == 3] = 0
@@ -17,6 +18,7 @@ def get_boundary(mask):
     local_min = minimum_filter(m, size=3)
     boundary = ((local_max != local_min) & (field_mask > 0)).astype(np.float32)
     return boundary
+
 
 def get_distance(mask):
     m = mask.astype(np.int32)
@@ -32,16 +34,45 @@ def get_distance(mask):
 
 class FTWMultiCountryDataset(Dataset):
     valid_countries = [
-        "austria", "belgium", "brazil", "cambodia", "corsica", "croatia", "denmark",
-        "estonia", "finland", "france", "germany", "india", "kenya", "latvia",
-        "lithuania", "luxembourg", "netherlands", "portugal", "rwanda", "slovakia",
-        "slovenia", "south_africa", "spain", "sweden", "vietnam"
+        "austria",
+        "belgium",
+        "brazil",
+        "cambodia",
+        "corsica",
+        "croatia",
+        "denmark",
+        "estonia",
+        "finland",
+        "france",
+        "germany",
+        "india",
+        "kenya",
+        "latvia",
+        "lithuania",
+        "luxembourg",
+        "netherlands",
+        "portugal",
+        "rwanda",
+        "slovakia",
+        "slovenia",
+        "south_africa",
+        "spain",
+        "sweden",
+        "vietnam",
     ]
     valid_splits = ["train", "val", "test"]
     valid_temporal_options = ["stacked", "windowA", "windowB"]
 
-    def __init__(self, root_dir, countries, split="train", load_boundaries=False,
-                 temporal_option="stacked", crop_size=(256, 256), num_samples=-1):
+    def __init__(
+        self,
+        root_dir,
+        countries,
+        split="train",
+        load_boundaries=False,
+        temporal_option="stacked",
+        crop_size=(256, 256),
+        num_samples=-1,
+    ):
 
         if isinstance(countries, str):
             countries = [countries]
@@ -82,11 +113,7 @@ class FTWMultiCountryDataset(Dataset):
                 mask_path = os.path.join(country_dir, mask_dir, f"{aoi}.tif")
 
                 if os.path.exists(harvest_path) and os.path.exists(planting_path) and os.path.exists(mask_path):
-                    self.file_list.append({
-                        "image_a": planting_path,
-                        "image_b": harvest_path,
-                        "mask": mask_path
-                    })
+                    self.file_list.append({"image_a": planting_path, "image_b": harvest_path, "mask": mask_path})
 
         if self.num_samples != -1:
             self.file_list = random.sample(self.file_list, min(self.num_samples, len(self.file_list)))
@@ -116,7 +143,7 @@ class FTWMultiCountryDataset(Dataset):
             torch.from_numpy(image),
             torch.from_numpy(mask),
             torch.from_numpy(np.expand_dims(boundary, 0)),
-            torch.from_numpy(np.expand_dims(distance, 0))
+            torch.from_numpy(np.expand_dims(distance, 0)),
         )
 
     def __len__(self):

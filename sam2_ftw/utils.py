@@ -1,4 +1,3 @@
-
 import hashlib
 import logging
 import os
@@ -24,6 +23,7 @@ logger = logging.getLogger()
 # ============================================================
 # Some utilities for dataset/datamodule
 # ============================================================
+
 
 def compute_md5(file_path):
     """Compute the MD5 checksum of a file."""

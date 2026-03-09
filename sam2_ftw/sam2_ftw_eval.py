@@ -21,14 +21,14 @@ import warnings
 # Filter SAM2 C extension warning
 warnings.filterwarnings("ignore", message="cannot import name '_C' from 'sam2'")
 
-# Add project root to path
-sam2_repo_path = Path(os.environ.get("SAM2_REPO_PATH", "."))
-sys.path.insert(0, str(sam2_repo_path))
-
 # Patch SAM2 internal tqdm to be silent
 import sam2.sam2_video_predictor
+
+
 def silent_tqdm(iterable, *args, **kwargs):
     return iterable
+
+
 sam2.sam2_video_predictor.tqdm = silent_tqdm
 
 from build_sam_v2 import build_sam2, build_sam2_video_predictor
@@ -48,6 +48,7 @@ OUTPUT_DIR = "sam2_ftw_eval"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 CSV_NAME = os.path.join(OUTPUT_DIR, "eval_results.csv")
 
+
 class Sam2EvalTransform:
     def __init__(self, max_image_size=1024):
         self.max_image_size = max_image_size
@@ -56,60 +57,61 @@ class Sam2EvalTransform:
 
     def __call__(self, sample):
         # sample has 'window_a', 'window_b', 'mask'
-        img_a = sample["window_a"].numpy().transpose(1, 2, 0) # H,W,C
+        img_a = sample["window_a"].numpy().transpose(1, 2, 0)  # H,W,C
         img_b = sample["window_b"].numpy().transpose(1, 2, 0)
-        mask_gt = sample["mask"].numpy() # H,W (GT for Window B)
+        mask_gt = sample["mask"].numpy()  # H,W (GT for Window B)
 
         orig_h, orig_w = img_a.shape[0], img_a.shape[1]
 
         # For auto-mask generator, we usually want the image in 0-255 uint8.
-        # Preprocessing: dataset might return raw values. 
+        # Preprocessing: dataset might return raw values.
         # Previous logic: / 3000.0 clip 0-1, * 255 -> uint8.
         img_a_norm = np.clip(img_a / 3000.0, 0, 1)
-        img_b_norm = np.clip(img_b / 3000.0, 0, 1) # Normalize img_b too for consistency
-        
+        img_b_norm = np.clip(img_b / 3000.0, 0, 1)  # Normalize img_b too for consistency
+
         img_a_uint8 = (img_a_norm * 255).astype(np.uint8)
-        
+
         # Resize to MAX_IMAGE_SIZE
         r = min(self.max_image_size / orig_h, self.max_image_size / orig_w)
         h, w = int(orig_h * r), int(orig_w * r)
-        
+
         img_a_res = cv2.resize(img_a_norm, (w, h))
         img_b_res = cv2.resize(img_b_norm, (w, h))
-        
+
         # We also need img_a_uint8 resized if we want to batch it perfectly?
         # AutoMaskGenerator works on individual images.
         # But if we return it in batch, they must be same size.
         # So yes, resize img_a_uint8 as well.
         img_a_uint8_res = cv2.resize(img_a_uint8, (w, h))
-        
+
         # Standardize for predictor input
         img_a_tensor = (img_a_res - self.img_mean) / self.img_std
         img_b_tensor = (img_b_res - self.img_mean) / self.img_std
-        
+
         # Stack frames: (2, H, W, C)
         images_np = np.stack([img_a_tensor, img_b_tensor], axis=0)
-        
+
         # Permute to (2, C, H, W)
         images_t = torch.from_numpy(images_np).permute(0, 3, 1, 2).float()
-        
+
         # We need mask_gt resized? No, metrics against orig mask_gt?
         # Typically metrics are against original GT.
-        # But DataLoader needs consistent size. 
+        # But DataLoader needs consistent size.
         # So we resize GT to (w,h) for transport, OR we return indices and load GT later?
         # Or we return mask_gt padded?
         # Let's resize mask GT to (w,h) for transport, but we ideally compare at Orig size.
         # We can store orig_h, orig_w and resize preds back.
         # But mask_gt also needs to be batched.
         mask_gt_res = cv2.resize(mask_gt, (w, h), interpolation=cv2.INTER_NEAREST)
-        
+
         return {
-            "images_t": images_t, # (2, C, H, W)
-            "img_a_uint8": torch.from_numpy(img_a_uint8_res), # (H, W, 3) -> Tensor for collate
-            "mask_gt": torch.from_numpy(mask_gt_res), # (H, W)
+            "images_t": images_t,  # (2, C, H, W)
+            "img_a_uint8": torch.from_numpy(img_a_uint8_res),  # (H, W, 3) -> Tensor for collate
+            "mask_gt": torch.from_numpy(mask_gt_res),  # (H, W)
             "orig_size": torch.tensor([orig_h, orig_w]),
             # "orig_mask_gt": mask_gt # Cannot batch variable size array easily without custom collate list
         }
+
 
 def collate_fn(batch):
     batch = [b for b in batch if b is not None]
@@ -117,7 +119,10 @@ def collate_fn(batch):
         return None
     return torch.utils.data.dataloader.default_collate(batch)
 
-def init_custom_state(predictor, images_tensor, height, width, device, offload_video_to_cpu=False, offload_state_to_cpu=False):
+
+def init_custom_state(
+    predictor, images_tensor, height, width, device, offload_video_to_cpu=False, offload_state_to_cpu=False
+):
     """
     Manually initialize inference state with provided image tensor.
     images_tensor: (N, 3, H, W) normalized
@@ -134,7 +139,7 @@ def init_custom_state(predictor, images_tensor, height, width, device, offload_v
         inference_state["storage_device"] = torch.device("cpu")
     else:
         inference_state["storage_device"] = device
-    
+
     inference_state["point_inputs_per_obj"] = {}
     inference_state["mask_inputs_per_obj"] = {}
     inference_state["cached_features"] = {}
@@ -145,24 +150,25 @@ def init_custom_state(predictor, images_tensor, height, width, device, offload_v
     inference_state["output_dict_per_obj"] = {}
     inference_state["temp_output_dict_per_obj"] = {}
     inference_state["frames_tracked_per_obj"] = {}
-    
+
     # Warm up frame 0
     predictor._get_image_feature(inference_state, frame_idx=0, batch_size=1)
-    
+
     return inference_state
+
 
 def main():
     # Hyperparameters
-    BATCH_SIZE = 1 
+    BATCH_SIZE = 1
     NUM_WORKERS = 4
     MAX_IMAGE_SIZE = 1024
-    
+
     # Countries to evaluate
     # Using a subset for demonstration/speed as per sam_eval.py example, or full list if desired.
     # User requested "iterate across countries", implying all or the standard subset.
     # sam_eval.py uses: ['slovenia', 'france', 'south_africa']
-    COUNTRIES = ['slovenia', 'france', 'south_africa'] 
-    
+    COUNTRIES = ["slovenia", "france", "south_africa"]
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Initialize CSV with new columns
@@ -174,7 +180,7 @@ def main():
         GlobalHydra.instance().clear()
     sam2_model = build_sam2(MODEL_CFG, CHECKPOINT_PATH, device=device, apply_postprocessing=False)
     mask_generator = SAM2AutomaticMaskGenerator(sam2_model)
-    
+
     # 2. Build Video Predictor
     if GlobalHydra.instance().is_initialized():
         GlobalHydra.instance().clear()
@@ -184,28 +190,24 @@ def main():
 
     for country in COUNTRIES:
         print(f"Evaluating Country: {country}")
-        
+
         dataset = FTW(
-            root=DATA_ROOT, 
-            countries=[country], 
-            split="test", 
-            load_boundaries="instance", 
+            root=DATA_ROOT,
+            countries=[country],
+            split="test",
+            load_boundaries="instance",
             temporal_options="sam2",
-            transforms=transform
+            transforms=transform,
         )
-        
+
         if len(dataset) == 0:
             print(f"No samples found for {country}, skipping.")
             continue
-        
+
         dataloader = torch.utils.data.DataLoader(
-            dataset, 
-            batch_size=BATCH_SIZE, 
-            shuffle=False, 
-            num_workers=NUM_WORKERS,
-            collate_fn=collate_fn
+            dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS, collate_fn=collate_fn
         )
-        
+
         # Metric Accumulators
         b_iou = []
         b_pxl_prec = []
@@ -217,31 +219,31 @@ def main():
 
         # Tqdm over dataloader
         pbar = tqdm(dataloader, desc=f"Country {country}")
-        
+
         for batch in pbar:
             if batch is None:
                 continue
-                
-            b_images_t = batch["images_t"].to(device) # (B, 2, C, H, W)
-            b_img_a_uint8 = batch["img_a_uint8"].numpy() # (B, H, W, 3)
-            b_mask_gt = batch["mask_gt"].numpy() # (B, H, W)
-            b_orig_size = batch["orig_size"].numpy() # (B, 2)
-            
+
+            b_images_t = batch["images_t"].to(device)  # (B, 2, C, H, W)
+            b_img_a_uint8 = batch["img_a_uint8"].numpy()  # (B, H, W, 3)
+            b_mask_gt = batch["mask_gt"].numpy()  # (B, H, W)
+            b_orig_size = batch["orig_size"].numpy()  # (B, 2)
+
             curr_batch_size = b_images_t.shape[0]
-            
+
             for i in range(curr_batch_size):
-                images_t = b_images_t[i] # (2, C, H, W)
-                img_a_uint8 = b_img_a_uint8[i] # (H, W, 3)
-                mask_gt = b_mask_gt[i] # (H, W)
+                images_t = b_images_t[i]  # (2, C, H, W)
+                img_a_uint8 = b_img_a_uint8[i]  # (H, W, 3)
+                mask_gt = b_mask_gt[i]  # (H, W)
                 orig_h_raw, orig_w_raw = b_orig_size[i]
-                
+
                 h, w = img_a_uint8.shape[:2]
-                
+
                 # A. Auto-mask Window A
                 auto_masks = mask_generator.generate(img_a_uint8)
-                
+
                 if len(auto_masks) == 0:
-                    # No predictions -> 0 IOU? Or ignore? 
+                    # No predictions -> 0 IOU? Or ignore?
                     # Usually means 0 IOU if GT has objects.
                     # FTW GT always has objects?
                     # Let's assume 0 metrics if failed to predict.
@@ -251,30 +253,21 @@ def main():
                     b_obj_prec.append(0.0)
                     b_obj_recall.append(0.0)
                     continue
-                    
+
                 # B. Setup Video Tracking
-                inference_state = init_custom_state(
-                    predictor, 
-                    images_t, 
-                    height=h, 
-                    width=w, 
-                    device=device
-                )
-                
+                inference_state = init_custom_state(predictor, images_t, height=h, width=w, device=device)
+
                 # Add each auto-mask as an object
                 for mask_idx, mask_result in enumerate(auto_masks):
-                    seg = mask_result["segmentation"] # (h, w) bool
+                    seg = mask_result["segmentation"]  # (h, w) bool
                     mask_tensor = torch.tensor(seg, dtype=torch.float32, device=device)
-                    
+
                     predictor.add_new_mask(
-                         inference_state=inference_state,
-                         frame_idx=0,
-                         obj_id=mask_idx,
-                         mask=mask_tensor
+                        inference_state=inference_state, frame_idx=0, obj_id=mask_idx, mask=mask_tensor
                     )
-                    
+
                 # C. Propagate to Frame 1
-                video_segments = {} 
+                video_segments = {}
                 for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
                     if out_frame_idx == 1:
                         for k, out_obj_id in enumerate(out_obj_ids):
@@ -289,17 +282,17 @@ def main():
                     combined_pred = combined_pred.astype(np.uint8)
                 else:
                     combined_pred = np.zeros((h, w), dtype=np.uint8)
-                    
+
                 # GT Binary
                 gt_binary = (mask_gt > 0).astype(np.uint8)
-                
+
                 # Metrics
-                
+
                 # Pixel IOU
                 inter = np.logical_and(gt_binary, combined_pred).sum()
                 union = np.sum(gt_binary) + np.sum(combined_pred) - inter
                 iou = inter / (union + 1e-6)
-                
+
                 # Pixel Precision / Recall
                 # TP: Pred=1, GT=1
                 # FP: Pred=1, GT=0
@@ -307,23 +300,23 @@ def main():
                 tps = np.logical_and(combined_pred, gt_binary).sum()
                 fps = np.logical_and(combined_pred, np.logical_not(gt_binary)).sum()
                 fns = np.logical_and(np.logical_not(combined_pred), gt_binary).sum()
-                
+
                 pxl_prec = tps / (tps + fps + 1e-6)
                 pxl_recall = tps / (tps + fns + 1e-6)
-                
+
                 # Object metrics
                 # get_object_level_metrics returns (TP, FP, FN) for objects
                 obj_tps_val, obj_fps_val, obj_fns_val = get_object_level_metrics(gt_binary, combined_pred)
                 obj_prec = obj_tps_val / (obj_tps_val + obj_fps_val + 1e-6)
                 obj_recall = obj_tps_val / (obj_tps_val + obj_fns_val + 1e-6)
-                
+
                 # Append
                 b_iou.append(iou)
                 b_pxl_prec.append(pxl_prec)
                 b_pxl_recall.append(pxl_recall)
                 b_obj_prec.append(obj_prec)
                 b_obj_recall.append(obj_recall)
-        
+
         # Aggregate per country
         if len(b_iou) > 0:
             mean_iou = np.mean(b_iou)
@@ -331,15 +324,20 @@ def main():
             mean_pxl_recall = np.mean(b_pxl_recall)
             mean_obj_prec = np.mean(b_obj_prec)
             mean_obj_recall = np.mean(b_obj_recall)
-            
-            print(f"Country {country} Results: IOU={mean_iou:.4f}, PxlPrec={mean_pxl_prec:.4f}, PxlRec={mean_pxl_recall:.4f}, ObjPrec={mean_obj_prec:.4f}, ObjRec={mean_obj_recall:.4f}")
-            
+
+            print(
+                f"Country {country} Results: IOU={mean_iou:.4f}, PxlPrec={mean_pxl_prec:.4f}, PxlRec={mean_pxl_recall:.4f}, ObjPrec={mean_obj_prec:.4f}, ObjRec={mean_obj_recall:.4f}"
+            )
+
             with open(CSV_NAME, "a") as f:
-                f.write(f"{country},{mean_iou:.4f},{mean_pxl_prec:.4f},{mean_pxl_recall:.4f},{mean_obj_prec:.4f},{mean_obj_recall:.4f}\n")
+                f.write(
+                    f"{country},{mean_iou:.4f},{mean_pxl_prec:.4f},{mean_pxl_recall:.4f},{mean_obj_prec:.4f},{mean_obj_recall:.4f}\n"
+                )
         else:
             print(f"No valid results for {country}")
 
     print(f"Evaluation complete. Results saved to {CSV_NAME}")
+
 
 if __name__ == "__main__":
     main()

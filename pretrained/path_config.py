@@ -16,7 +16,7 @@ def _get_ckpt_base_dir():
     """Get base checkpoint directory from environment or default."""
     if "FTW_CKPT_BASE_DIR" in os.environ:
         return Path(os.environ["FTW_CKPT_BASE_DIR"])
-    
+
     work_dir = os.environ.get("WORK_DIR", ".")
     return Path(work_dir) / "gfm_ckpts" / "encoders"
 
@@ -25,10 +25,10 @@ def _get_data_root():
     """Get FTW data root directory from environment or default."""
     if "FTW_DATA_ROOT" in os.environ:
         return Path(os.environ["FTW_DATA_ROOT"])
-    
+
     if "FTW_DATA_DIR" in os.environ:
         return Path(os.environ["FTW_DATA_DIR"])
-    
+
     return Path("./data/ftw")
 
 
@@ -36,7 +36,7 @@ def _get_metadata_path():
     """Get metadata YAML path from environment or default."""
     if "FTW_METADATA_PATH" in os.environ:
         return Path(os.environ["FTW_METADATA_PATH"])
-    
+
     repo_root = Path(__file__).resolve().parents[2]
     return repo_root / "configs" / "metadata.yaml"
 
@@ -63,10 +63,10 @@ MODEL_PATHS = {
 def get_model_path(model_name: str) -> Path:
     """
     Get checkpoint path for a model.
-    
+
     Args:
         model_name: Name of the model (e.g., "clay", "croma", etc.)
-    
+
     Returns:
         Path to the model checkpoint directory or file
     """
@@ -79,7 +79,7 @@ def get_model_path(model_name: str) -> Path:
 def get_data_root() -> Path:
     """
     Get FTW data root directory.
-    
+
     Returns:
         Path to the FTW data root directory
     """
@@ -89,9 +89,8 @@ def get_data_root() -> Path:
 def get_metadata_path() -> Path:
     """
     Get metadata YAML file path.
-    
+
     Returns:
         Path to the metadata YAML file
     """
     return METADATA_PATH
-

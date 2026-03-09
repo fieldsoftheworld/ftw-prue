@@ -44,12 +44,12 @@ def get_distance(mask):
 
 def sample_points_from_mask(mask, n=1, is_training=True):
     """Sample points from binary field mask for SAM-2 prompts.
-    
+
     Args:
         mask: Binary field mask (numpy array, float32, 0 or 1)
         n: Number of points to sample (default: 1 for training, 3 for testing)
         is_training: If True, sample single point; if False, sample n points
-    
+
     Returns:
         points: Array of shape [n, 2] with (x, y) coordinates, or None if no points
         labels: Array of shape [n] with all 1s (positive points), or None
@@ -57,7 +57,7 @@ def sample_points_from_mask(mask, n=1, is_training=True):
     ys, xs = np.where(mask > 0.5)
     if len(xs) == 0:
         return None, None
-    
+
     if is_training:
         idx = np.random.randint(len(xs))
         points = np.array([[xs[idx], ys[idx]]], dtype=np.float32)
@@ -67,20 +67,21 @@ def sample_points_from_mask(mask, n=1, is_training=True):
         idx = np.random.choice(len(xs), size=n_samples, replace=False)
         points = np.stack([xs[idx], ys[idx]], axis=1).astype(np.float32)
         labels = np.ones(len(points), dtype=np.int32)
-    
+
     return points, labels
 
 
 def prepare_binary_field_mask(mask):
     """Convert 3-class mask to binary field mask (classes 1 and 2 -> 1, else 0).
-    
+
     Args:
         mask: 3-class mask (numpy array)
-    
+
     Returns:
         Binary field mask (float32, 0 or 1)
     """
     return ((mask == 1) | (mask == 2)).astype(np.float32)
+
 
 class SingleRasterDataset(RasterDataset):
     """A torchgeo dataset that loads a single raster file."""
@@ -164,7 +165,9 @@ class FTW(NonGeoDataset):
         self.countries = countries
         assert split in self.valid_splits
         self.preprocessing = preprocessing
-        self.preprocessor, self.gsd, self.waves = get_preprocessor(preprocessing=preprocessing, metadata_path=metadata_path)
+        self.preprocessor, self.gsd, self.waves = get_preprocessor(
+            preprocessing=preprocessing, metadata_path=metadata_path
+        )
         self.checksum = checksum
         self.load_boundaries = load_boundaries
         self.temporal_options = temporal_options
@@ -172,7 +175,7 @@ class FTW(NonGeoDataset):
         self.swap_order = swap_order
         self.split = split
         self.compute_boundary_distance = False
-        self.sam2_mode = (temporal_options == "sam2")
+        self.sam2_mode = temporal_options == "sam2"
         self.sam2_max_image_size = sam2_max_image_size
         self.sam2_num_points = sam2_num_points
         if metadata_path != None and self.preprocessing == "clay":
@@ -180,7 +183,7 @@ class FTW(NonGeoDataset):
         else:
             self.with_metadata = False
             self.metadata_path = metadata_path
-        print("METADATA used: ",  self.with_metadata)
+        print("METADATA used: ", self.with_metadata)
         print("Preprocessing method: ", self.preprocessing)
 
         if self.load_boundaries:
@@ -191,9 +194,7 @@ class FTW(NonGeoDataset):
         print("Temporal option: ", temporal_options)
         if swap_order:
             if temporal_options not in ("stacked", "rgb"):
-                raise ValueError(
-                    "Can only use swap_order with temporal_options stacked or rgb"
-                )
+                raise ValueError("Can only use swap_order with temporal_options stacked or rgb")
             print("Using window A first, then window B")
         else:
             print("Using window B first, then window A")
@@ -210,60 +211,37 @@ class FTW(NonGeoDataset):
         all_img_filenames = []
         self.feat_filenames = []
         all_feat_filenames = []
-        ignore_list = ["g14-2_00059_7","g50_00037_0","g2_00036_9","g25_00014_11"]
-        
+        ignore_list = ["g14-2_00059_7", "g50_00037_0", "g2_00036_9", "g25_00014_11"]
+
         for country in self.countries:
             country_root = os.path.join(self.root, country)
             chips_fn = os.path.join(country_root, f"chips_{country}.parquet")
             chips_df = gpd.read_parquet(str(chips_fn))
             chips_df = chips_df[chips_df["split"] == split]
             aoi_ids = chips_df["aoi_id"].values
-            aoi_ids = [id for id in aoi_ids if id not in ignore_list]  
+            aoi_ids = [id for id in aoi_ids if id not in ignore_list]
             for idx in aoi_ids:
-                window_b_fn = Path(
-                    os.path.join(country_root, "s2_images/window_b", f"{idx}.tif")
-                )
-                window_a_fn = Path(
-                    os.path.join(country_root, "s2_images/window_a", f"{idx}.tif")
-                )
-                masks_2c_fn = Path(
-                    os.path.join(
-                        country_root, "label_masks/semantic_2class", f"{idx}.tif"
-                    )
-                )
-                masks_3c_fn = Path(
-                    os.path.join(
-                        country_root, "label_masks/semantic_3class", f"{idx}.tif"
-                    )
-                )
+                window_b_fn = Path(os.path.join(country_root, "s2_images/window_b", f"{idx}.tif"))
+                window_a_fn = Path(os.path.join(country_root, "s2_images/window_a", f"{idx}.tif"))
+                masks_2c_fn = Path(os.path.join(country_root, "label_masks/semantic_2class", f"{idx}.tif"))
+                masks_3c_fn = Path(os.path.join(country_root, "label_masks/semantic_3class", f"{idx}.tif"))
 
                 if not (
-                    window_b_fn.exists()
-                    and window_a_fn.exists()
-                    and masks_2c_fn.exists()
-                    and masks_3c_fn.exists()
+                    window_b_fn.exists() and window_a_fn.exists() and masks_2c_fn.exists() and masks_3c_fn.exists()
                 ):
                     continue
 
                 if self.load_boundaries:
-                    mask_fn = os.path.join(
-                        country_root, "label_masks/semantic_3class", f"{idx}.tif"
-                    )
+                    mask_fn = os.path.join(country_root, "label_masks/semantic_3class", f"{idx}.tif")
                 else:
-                    mask_fn = os.path.join(
-                        country_root, "label_masks/semantic_2class", f"{idx}.tif"
-                    )
+                    mask_fn = os.path.join(country_root, "label_masks/semantic_2class", f"{idx}.tif")
 
                 if os.path.exists(mask_fn):
                     if "images" in self.input_type:
                         all_img_filenames.append(
                             {
-                                "window_b": os.path.join(
-                                    country_root, "s2_images/window_b", f"{idx}.tif"
-                                ),
-                                "window_a": os.path.join(
-                                    country_root, "s2_images/window_a", f"{idx}.tif"
-                                ),
+                                "window_b": os.path.join(country_root, "s2_images/window_b", f"{idx}.tif"),
+                                "window_a": os.path.join(country_root, "s2_images/window_a", f"{idx}.tif"),
                                 "mask": mask_fn,
                             }
                         )
@@ -273,23 +251,18 @@ class FTW(NonGeoDataset):
                         country_feat_root = os.path.join(self.feat_root, country)
                         all_feat_filenames.append(
                             {
-                                "window_b_feats": os.path.join(
-                                    country_feat_root, "window_b", f"{model}_{idx}.npz"
-                                ),
-                                "window_a_feats": os.path.join(
-                                    country_feat_root, "window_a", f"{model}_{idx}.npz"
-                                ),
+                                "window_b_feats": os.path.join(country_feat_root, "window_b", f"{model}_{idx}.npz"),
+                                "window_a_feats": os.path.join(country_feat_root, "window_a", f"{model}_{idx}.npz"),
                                 "mask": mask_fn,
                             }
                         )
-
 
         if self.num_samples == -1:
             self.img_filenames = all_img_filenames
             self.feat_filenames = all_feat_filenames
         else:
             raise ValueError("Currently only -1 (all samples) is supported for num_samples")
-           
+
         print("Selecting : ", len(self.feat_filenames), " feat samples")
         print("Selecting : ", len(self.img_filenames), "  image samples")
 
@@ -342,9 +315,7 @@ class FTW(NonGeoDataset):
                     [
                         os.path.exists(os.path.join(country_dir, "s2_images/window_b")),
                         os.path.exists(os.path.join(country_dir, "s2_images/window_a")),
-                        os.path.exists(
-                            os.path.join(country_dir, "label_masks/semantic_3class")
-                        ),
+                        os.path.exists(os.path.join(country_dir, "label_masks/semantic_3class")),
                     ]
                 ):
                     print(f"Country {country} does not have all required directories")
@@ -354,9 +325,7 @@ class FTW(NonGeoDataset):
                     [
                         os.path.exists(os.path.join(country_dir, "s2_images/window_b")),
                         os.path.exists(os.path.join(country_dir, "s2_images/window_a")),
-                        os.path.exists(
-                            os.path.join(country_dir, "label_masks/semantic_2class")
-                        ),
+                        os.path.exists(os.path.join(country_dir, "label_masks/semantic_2class")),
                     ]
                 ):
                     print(f"Country {country} does not have all required directories")
@@ -368,7 +337,6 @@ class FTW(NonGeoDataset):
             return len(self.feat_filenames)
         else:
             return len(self.img_filenames)
-    
 
     def __getitem__(self, index: int) -> dict[str, Tensor]:
         """Return an index within the dataset.
@@ -379,14 +347,13 @@ class FTW(NonGeoDataset):
         Returns:
             dictionary containing "image" and "mask" PyTorch tensors
         """
-        
+
         sample = {}
         if "features" in self.input_type:
             feat_filenames = self.feat_filenames[index]
 
-            window_b_feat = np.load(feat_filenames["window_b_feats"])["embedding"]  
+            window_b_feat = np.load(feat_filenames["window_b_feats"])["embedding"]
             window_a_feat = np.load(feat_filenames["window_a_feats"])["embedding"]
-
 
             window_b_feat = reshape_feat(torch.from_numpy(window_b_feat).float())
             window_a_feat = reshape_feat(torch.from_numpy(window_a_feat).float())
@@ -412,40 +379,36 @@ class FTW(NonGeoDataset):
 
         if "images" in self.input_type:
             img_filenames = self.img_filenames[index]
-            
+
             if self.sam2_mode:
                 with rasterio.open(img_filenames["window_a"]) as f:
                     img_a_raw = f.read()[:3].astype(np.float32)
                 with rasterio.open(img_filenames["window_b"]) as f:
                     img_b_raw = f.read()[:3].astype(np.float32)
-                
+
                 with rasterio.open(img_filenames["mask"]) as f:
                     mask = f.read(1)
-                
+
                 FTW_NORM_CONST = 3000.0
                 img_a_np = (img_a_raw / FTW_NORM_CONST).transpose(1, 2, 0)
                 img_b_np = (img_b_raw / FTW_NORM_CONST).transpose(1, 2, 0)
-                
+
                 mask_resized = mask
-                
+
                 img_a_np = np.clip(img_a_np, 0.0, 1.0)
                 img_b_np = np.clip(img_b_np, 0.0, 1.0)
-                
+
                 img_a_np = (img_a_np * 255.0).astype(np.uint8)
                 img_b_np = (img_b_np * 255.0).astype(np.uint8)
-                
+
                 img_a = torch.from_numpy(img_a_np).permute(2, 0, 1).float()
                 img_b = torch.from_numpy(img_b_np).permute(2, 0, 1).float()
-                
+
                 field_mask = prepare_binary_field_mask(mask_resized)
-                
-                is_training = (self.split == "train")
-                points, labels = sample_points_from_mask(
-                    field_mask, 
-                    n=self.sam2_num_points, 
-                    is_training=is_training
-                )
-                
+
+                is_training = self.split == "train"
+                points, labels = sample_points_from_mask(field_mask, n=self.sam2_num_points, is_training=is_training)
+
                 sample["window_a"] = img_a
                 sample["window_b"] = img_b
                 sample["field_mask"] = torch.from_numpy(field_mask).float()
@@ -456,18 +419,18 @@ class FTW(NonGeoDataset):
                 else:
                     sample["points"] = torch.zeros((1, 2), dtype=torch.float32)
                     sample["point_labels"] = torch.zeros((1,), dtype=torch.long)
-                
+
                 sample["mask"] = sample["field_mask"].long()
-                
+
                 return sample
-            
+
             images = []
-            time_vectors = [] 
+            time_vectors = []
             metadata_dict = None
 
             current_gsd = self.gsd
             current_waves = self.waves
-            
+
             windows_to_load = []
             if self.temporal_options in ("stacked", "median", "windowB", "rgb"):
                 windows_to_load.append("window_b")
@@ -475,28 +438,28 @@ class FTW(NonGeoDataset):
                 windows_to_load.append("window_a")
             if self.temporal_options == "random_window":
                 windows_to_load.append("window_a" if random.random() < 0.5 else "window_b")
-            
+
             for window_key in windows_to_load:
                 if self.preprocessing == "clay":
                     data_dict = prepare_clay_sample(
-                        image_path=img_filenames[window_key], 
+                        image_path=img_filenames[window_key],
                         preprocess=self.preprocessor,
-                        gsd=current_gsd,                   
+                        gsd=current_gsd,
                         waves=current_waves,
-                        data_root=self.root,               
+                        data_root=self.root,
                     )
                 else:
                     data_dict = prepare_general_sample(
-                        image_path=img_filenames[window_key], 
+                        image_path=img_filenames[window_key],
                         preprocess=self.preprocessor,
                     )
-        
-                images.append(data_dict['image'])
-                
+
+                images.append(data_dict["image"])
+
                 if self.with_metadata:
                     time_vectors.append(data_dict["time"])
                     if metadata_dict is None:
-                        metadata_dict = data_dict 
+                        metadata_dict = data_dict
 
             if self.swap_order and len(images) == 2:
                 images = [images[1], images[0]]
@@ -511,9 +474,9 @@ class FTW(NonGeoDataset):
                 image = torch.from_numpy(np.median(images_np, axis=0)).float()
             else:
                 image = torch.cat(images, dim=0).float()
-                    
+
             sample["image"] = image
-            
+
             if self.with_metadata:
                 sample["time"] = torch.cat(time_vectors, dim=0) if len(time_vectors) > 1 else time_vectors[0]
                 sample["latlon"] = metadata_dict["latlon"]
@@ -522,7 +485,7 @@ class FTW(NonGeoDataset):
                 sample["platform"] = metadata_dict["platform"]
 
             sample["mask"] = torch.from_numpy(mask).long()
-            
+
             if self.compute_boundary_distance:
                 boundary = get_boundary(mask)
                 distance = get_distance(mask)

@@ -4,8 +4,8 @@ import torch.nn as nn
 
 class SigmoidCrisp(nn.Module):
     """Crisp Sigmoid activation with learnable gamma parameter"""
-    
-    def __init__(self, smooth=1.e-2, **kwargs):
+
+    def __init__(self, smooth=1.0e-2, **kwargs):
         super().__init__()
 
         self.smooth = smooth

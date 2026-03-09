@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+
 class FtnmtLoss(nn.Module):
     def __init__(self, depth=5, smooth=1e-5, dims=(1, 2, 3)):
         super().__init__()
@@ -15,15 +16,15 @@ class FtnmtLoss(nn.Module):
         return torch.sum(prob * label * valid_mask, dim=self.dims)
 
     def tnmt_base(self, preds, labels, valid_mask):
-        tpl = self.inner_prod(preds, labels, valid_mask)   
-        tpp = self.inner_prod(preds, preds, valid_mask)    
-        tll = self.inner_prod(labels, labels, valid_mask)  
+        tpl = self.inner_prod(preds, labels, valid_mask)
+        tpp = self.inner_prod(preds, preds, valid_mask)
+        tll = self.inner_prod(labels, labels, valid_mask)
 
         num = tpl + self.smooth
         denum = 0.0
 
         for d in range(self.depth):
-            a = 2.0 ** d
+            a = 2.0**d
             b = -(2.0 * a - 1.0)
             denom_d = a * (tpp + tll) + b * tpl + self.smooth
             denum += 1.0 / denom_d
@@ -64,10 +65,8 @@ class MultiTaskLoss(nn.Module):
         loss_dist_raw = self.distance_loss(pred_dist, label_dist)
         loss_dist = torch.sum(loss_dist_raw * valid_mask) / (torch.sum(valid_mask) + 1e-5)
 
-        total_loss = (
-            self.seg_weight * loss_segm +
-            self.bound_weight * loss_bound +
-            self.dist_weight * loss_dist
-        ) / (self.seg_weight + self.bound_weight + self.dist_weight)
+        total_loss = (self.seg_weight * loss_segm + self.bound_weight * loss_bound + self.dist_weight * loss_dist) / (
+            self.seg_weight + self.bound_weight + self.dist_weight
+        )
 
         return total_loss, loss_segm, loss_bound, loss_dist

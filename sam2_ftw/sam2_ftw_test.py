@@ -23,10 +23,8 @@ from tqdm import tqdm
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-sam2_repo_path = Path(os.environ.get("SAM2_REPO_PATH", "."))
-sys.path.insert(0, str(sam2_repo_path))
-
 from sam2.build_sam import build_sam2_video_predictor
+
 DATA_ROOT = os.environ.get("FTW_DATA_ROOT", "./data/ftw")
 MODEL_CFG = "sam2_hiera_s.yaml"
 BASE_CHECKPOINT = os.environ.get("SAM2_CHECKPOINT_PATH", None)
@@ -90,7 +88,7 @@ def sample_points(mask, n=3):
 
 
 def compute_iou(pred, gt):
-    pred = (pred > 0.5)
+    pred = pred > 0.5
     gt = gt.astype(bool)
     inter = (pred & gt).sum()
     union = (pred | gt).sum()
@@ -165,20 +163,28 @@ def main():
             )
 
             pred = torch.sigmoid(low_res[:, 0])
-            pred = F.interpolate(pred.unsqueeze(0),
-                                  size=gt_bin.shape,
-                                  mode="bilinear").squeeze().cpu().numpy()
+            pred = F.interpolate(pred.unsqueeze(0), size=gt_bin.shape, mode="bilinear").squeeze().cpu().numpy()
 
         iou = compute_iou(pred, gt_bin)
         ious.append(iou)
 
         plt.figure(figsize=(15, 4))
-        plt.subplot(1, 4, 1); plt.title("Window B"); plt.imshow(img_b[0].permute(1,2,0).cpu()); plt.axis("off")
-        plt.subplot(1, 4, 2); plt.title("GT"); plt.imshow(gt_bin, cmap="gray"); plt.axis("off")
-        plt.subplot(1, 4, 3); plt.title(f"Pred (IoU={iou:.3f})"); plt.imshow(pred, cmap="gray"); plt.axis("off")
-        plt.subplot(1, 4, 4); plt.title("Overlay"); 
-        plt.imshow(img_b[0].permute(1,2,0).cpu()); 
-        plt.imshow(pred > 0.5, alpha=0.5, cmap="Reds"); 
+        plt.subplot(1, 4, 1)
+        plt.title("Window B")
+        plt.imshow(img_b[0].permute(1, 2, 0).cpu())
+        plt.axis("off")
+        plt.subplot(1, 4, 2)
+        plt.title("GT")
+        plt.imshow(gt_bin, cmap="gray")
+        plt.axis("off")
+        plt.subplot(1, 4, 3)
+        plt.title(f"Pred (IoU={iou:.3f})")
+        plt.imshow(pred, cmap="gray")
+        plt.axis("off")
+        plt.subplot(1, 4, 4)
+        plt.title("Overlay")
+        plt.imshow(img_b[0].permute(1, 2, 0).cpu())
+        plt.imshow(pred > 0.5, alpha=0.5, cmap="Reds")
         plt.axis("off")
 
         plt.tight_layout()

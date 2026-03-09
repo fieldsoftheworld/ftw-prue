@@ -31,7 +31,7 @@ class FTWDataModule(NonGeoDataModule):
         train_countries: list[str] = ["france"],
         val_countries: list[str] = ["france"],
         test_countries: list[str] = ["france"],
-        temporal_options: str = "stacked" ,
+        temporal_options: str = "stacked",
         num_samples: int = -1,
         **kwargs: Any,
     ) -> None:
@@ -59,13 +59,15 @@ class FTWDataModule(NonGeoDataModule):
         self.temporal_options = temporal_options
         self.num_samples = num_samples
 
-        # for the temporal option windowA, windowB and median we will have 4 channel input 
-        if self.temporal_options in ("windowA", "windowB" , "median"):
-            self.mean = torch.tensor([0, 0, 0, 0]) 
+        # for the temporal option windowA, windowB and median we will have 4 channel input
+        if self.temporal_options in ("windowA", "windowB", "median"):
+            self.mean = torch.tensor([0, 0, 0, 0])
             self.std = torch.tensor([3000, 3000, 3000, 3000])
-        elif self.temporal_options == "rgb": # for the rgb temporal option we are just selecting these 3 channls from both window_a and window_b images
-            self.mean = torch.tensor([0, 0, 0, 0, 0, 0]) 
-            self.std = torch.tensor([3000, 3000, 3000, 3000,  3000, 3000])
+        elif (
+            self.temporal_options == "rgb"
+        ):  # for the rgb temporal option we are just selecting these 3 channls from both window_a and window_b images
+            self.mean = torch.tensor([0, 0, 0, 0, 0, 0])
+            self.std = torch.tensor([3000, 3000, 3000, 3000, 3000, 3000])
 
         print("Loaded datamodule with:")
         print(f"Train countries: {self.train_countries}")
@@ -81,9 +83,7 @@ class FTWDataModule(NonGeoDataModule):
             K.RandomSharpness(p=0.5),
             data_keys=["image", "mask"],
         )
-        self.aug = AugmentationSequential(
-            K.Normalize(mean=self.mean, std=self.std), data_keys=["image", "mask"]
-        )
+        self.aug = AugmentationSequential(K.Normalize(mean=self.mean, std=self.std), data_keys=["image", "mask"])
         super().__init__(FTW, batch_size, num_workers, **kwargs)
 
     def setup(self, stage: str) -> None:

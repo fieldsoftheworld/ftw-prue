@@ -1,0 +1,56 @@
+MODEL:
+  BACKBONE:
+    FREEZE_AT: 0
+    NAME: "build_resnet_backbone"
+  RESNETS:
+    DEPTH: 50
+    STEM_TYPE: "basic"  # not used
+    STEM_OUT_CHANNELS: 64
+    STRIDE_IN_1X1: False
+    OUT_FEATURES: ["res2", "res3", "res4", "res5"]
+    # NORM: "SyncBN" # Use for Cityscapes dataset
+    RES5_MULTI_GRID: [1, 1, 1]  # not used
+DATASETS:
+  TRAIN: ("ftw_panoptic_train",)
+  TEST: ("ftw_panoptic_test",)
+  COUNTRIES_ALL: "austria,belgium,brazil,cambodia,corsica,croatia,denmark,estonia,finland,france,germany,india,kenya,latvia,lithuania,luxembourg,netherlands,portugal,rwanda,slovakia,slovenia,south_africa,spain,sweden,vietnam"
+  COUNTRIES_EVAL: "austria,belgium,brazil,cambodia,corsica,croatia,denmark,estonia,finland,france,germany,india,kenya,latvia,lithuania,luxembourg,netherlands,portugal,rwanda,slovakia,slovenia,south_africa,spain,sweden,vietnam"
+SOLVER:
+  IMS_PER_BATCH: 16
+  BASE_LR: 0.0001
+  STEPS: (327778, 355092)
+  MAX_ITER: 368750
+  WARMUP_FACTOR: 1.0
+  WARMUP_ITERS: 10
+  WEIGHT_DECAY: 0.05
+  OPTIMIZER: "ADAMW"
+  BACKBONE_MULTIPLIER: 0.1
+  CLIP_GRADIENTS:
+    ENABLED: True
+    CLIP_TYPE: "full_model"
+    CLIP_VALUE: 0.01
+    NORM_TYPE: 2.0
+  AMP:
+    ENABLED: True
+INPUT:
+  IMAGE_SIZE: 256
+  MIN_SCALE: 0.8 # SSJ is 0.8-1.25, LSJ is 0.1-2.0
+  MAX_SCALE: 1.25
+  MIN_SIZE_TEST: 256
+  MAX_SIZE_TEST: 256
+  ENABLE_TRAIN_AUGS: True
+  CROP:
+    ENABLED: True # Enable random cropping
+    TYPE: "relative"
+    SIZE: [0.85, 0.85]
+  RANDOM_FLIP: "horizontal"
+  FORMAT: "RGBNRGBN"
+  DATASET_MAPPER_NAME: "coco_panoptic_custom"
+TEST:
+  EVAL_PERIOD: 2500
+  EVAL_SUBSET_SIZE: 256  # 0 = use full test set, >0 = use subset for faster evaluation
+  BATCH_SIZE: 8  # Test batch size (used in custom_trainer.py)
+DATALOADER:
+  FILTER_EMPTY_ANNOTATIONS: False
+  NUM_WORKERS: 4
+VERSION: 2

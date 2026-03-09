@@ -1,0 +1,40 @@
+_BASE_: ../maskformer2_R50_ftw_panoptic.yaml
+MODEL:
+  BACKBONE:
+    NAME: "Mask2FormerD2SwinTransformer"
+  SWIN:
+    EMBED_DIM: 96
+    DEPTHS: [2, 2, 18, 2]
+    NUM_HEADS: [3, 6, 12, 24]
+    WINDOW_SIZE: 7
+    APE: False
+    DROP_PATH_RATE: 0.3
+    PATCH_NORM: True
+    IN_CHANS: 8
+  WEIGHTS: "weights/model_final_a407fd.pkl" # from M2F COCO Panoptic Swin-S
+  # PIXEL_MEAN: [812.9462930325918, 835.1682727768051, 589.8250133457168, 3063.0371584690756, 855.3974184965721, 861.8823907836851, 627.6821303556331, 2916.4155193231177] #ab
+  # PIXEL_STD: [671.8879797973646, 534.6787726700239, 497.19179485209634, 1119.199955771112, 720.7448113713396, 611.0536438663829, 579.9376877836879, 1074.89162441424222]
+  PIXEL_MEAN: [855.3974184965721, 861.8823907836851, 627.6821303556331, 2916.4155193231177, 812.9462930325918, 835.1682727768051, 589.8250133457168, 3063.0371584690756] #ba
+  PIXEL_STD: [720.7448113713396, 611.0536438663829, 579.9376877836879, 1074.8916244142422, 671.8879797973646, 534.6787726700239, 497.19179485209634, 1119.1999557711122]
+INPUT:
+  # Use LSJ (Large Scale Jittering) augmentation set (best for FTW)
+  AUGMENTATION_SET: "LSJ"
+TEST:
+  EVAL_PERIOD: 34860           # Evaluate every 10 epochs (3486 iterations/epoch * 10)
+OUTPUT_DIR: 'outputs/ftw_swin_small_bs16'
+
+SOLVER:
+  IMS_PER_BATCH: 16          # batch size 16 (as per filename)
+  # For 55,779 images: 55,779 / 16 = 3,486 iterations per epoch
+  # For 50 epochs: 50 * 3,486 = 174,300 iterations
+  MAX_ITER: 174300             # 50 epochs (overrides base: 368750)
+  # Cosine warmup scheduler for better convergence on small datasets
+  LR_SCHEDULER_NAME: "CosineWarmup"
+  COSINE:
+    MIN_FACTOR: 0.01         # Final LR = 0.01 * BASE_LR
+  WARMUP_FACTOR: 0.1         # Start at 10% of BASE_LR (overrides base: 1.0)
+  WARMUP_ITERS: 17430          # 10% of MAX_ITER (overrides base: 10)
+  WARMUP_METHOD: "linear"
+  # Increased weight decay for better regularization to mitigate overfitting
+  WEIGHT_DECAY: 0.1          # Increased from base 0.05
+  CHECKPOINT_PERIOD: 34860     # Save checkpoint every 10 epochs (overrides base: 2500)

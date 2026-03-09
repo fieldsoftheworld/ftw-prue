@@ -1,0 +1,39 @@
+_BASE_: ../maskformer2_R50_ftw_panoptic.yaml
+# Config used for paper draft submission results
+# This preserves the exact configuration that produced the reported numbers
+MODEL:
+  BACKBONE:
+    NAME: "Mask2FormerD2SwinTransformer"
+  SWIN:
+    EMBED_DIM: 96
+    DEPTHS: [2, 2, 18, 2]
+    NUM_HEADS: [3, 6, 12, 24]
+    WINDOW_SIZE: 7
+    APE: False
+    DROP_PATH_RATE: 0.3
+    PATCH_NORM: True
+    IN_CHANS: 8
+  WEIGHTS: "/weights/model_final_a407fd.pkl" # from M2F COCO Panoptic Swin-S
+  PIXEL_MEAN: [855.3974184965721, 861.8823907836851, 627.6821303556331, 2916.4155193231177, 812.9462930325918, 835.1682727768051, 589.8250133457168, 3063.0371584690756] #ba
+  PIXEL_STD: [720.7448113713396, 611.0536438663829, 579.9376877836879, 1074.8916244142422, 671.8879797973646, 534.6787726700239, 497.19179485209634, 1119.1999557711122]
+  MASK_FORMER:
+    NUM_OBJECT_QUERIES: 200  # Increased from standard 100
+    QUERY_EXPANSION:
+      ENABLED: True  # Enabled for 200 queries
+    MATCHER_USE_FOCAL_LOSS: True
+    MATCHER_FOCAL_ALPHA: 0.75
+    MATCHER_FOCAL_GAMMA: 3.0
+    TEST:
+      OBJECT_MASK_THRESHOLD: 0.1  # Lower threshold than standard 0.8
+SOLVER:
+  IMS_PER_BATCH: 32  # Effective batch size with gradient accumulation
+  GRADIENT_ACCUMULATION_STEPS: 2  # Effective batch size = 32
+  BASE_LR: 0.0005  # Higher than standard 0.0001
+  MAX_ITER: 92188
+  WARMUP_FACTOR: 0.05
+  WARMUP_ITERS: 500
+  LR_SCHEDULER_NAME: "CosineWarmup"
+TEST:
+  EVAL_SUBSET_SIZE: 512  # Larger subset for evaluation
+  BATCH_SIZE: 16  # Larger test batch size
+

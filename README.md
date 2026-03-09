@@ -18,7 +18,8 @@ cd ftw-prue
 uv pip install -e .            # core: training + eval
 uv pip install -e ".[gfm]"    # + foundation model encoders
 uv pip install -e ".[sam2]"   # + SAM2 finetuning
-uv pip install -e ".[m2f]" --no-build-isolation  # + Mask2Former (builds detectron2 from source)
+pip install -e detectron2/ --no-build-isolation  # vendored detectron2 (modified for multispectral)
+uv pip install -e ".[m2f]"    # + Mask2Former deps
 uv pip install -e ".[dev]"    # + pytest, ruff
 uv pip install -e ".[all]"    # everything
 ```
@@ -34,6 +35,7 @@ ftw_tools/       Core package — datasets, trainers, losses, metrics, postproce
 pretrained/      GFM encoder wrappers + feature extraction
 decode/          DECODE (FracTAL ResUNet) multi-task model
 sam2_ftw/        SAM2 finetuning pipeline
+detectron2/      Vendored detectron2 (modified: multi-band input, GeoTIFF support, panoptic eval)
 mask2former/     Vendored Mask2Former (modified for multispectral input)
 panopticapi/     Vendored panoptic evaluation utilities
 trainer/         Mask2Former training infrastructure (custom trainer, eval, hooks)

@@ -61,7 +61,7 @@ Merged the `prue-m2f` branch which adds a Mask2Former panoptic segmentation pipe
 
 | Dependency | Strategy | Reason |
 |-----------|----------|--------|
-| detectron2 | pip dep (`git+https://github.com/facebookresearch/detectron2.git`) | Vendored copy was unmodified v0.6 (partial — missing `data/`); now installed from upstream |
+| detectron2 | Vendored (modified) | Multi-band input formats (NRGB/BGRN/RGBN), GeoTIFF support, `FilteredCOCOPanopticEvaluator`, older CUDA compat, de-Meta'd Cityscapes imports |
 | mask2former | Vendored (modified) | Custom Swin `IN_CHANS` config for multispectral input |
 | panopticapi | Vendored | Evaluation utilities |
 
@@ -80,23 +80,22 @@ Merged the `prue-m2f` branch which adds a Mask2Former panoptic segmentation pipe
 
 ### Ruff Exclusions
 
-Added `mask2former/`, `panopticapi/` to ruff `extend-exclude` — vendored code is not formatted.
+Added `detectron2/`, `mask2former/`, `panopticapi/` to ruff `extend-exclude` — vendored code is not formatted.
 
 ### Dependency Group
 
-Added `[m2f]` optional dep group: `detectron2` (from GitHub), `pillow`, `pycocotools`, `fvcore`, `iopath`. Requires `--no-build-isolation` since detectron2 needs torch at build time.
+Added `[m2f]` optional dep group: `pillow`, `pycocotools`, `fvcore`, `iopath`. Vendored detectron2 installed separately via `pip install -e detectron2/ --no-build-isolation`.
 
 ### Fixes
 
-- Removed vendored `detectron2/` (was unmodified, incomplete v0.6 — missing `data/` module)
 - Replaced `detectron2.data.detection_utils.read_geotiff` imports (never existed upstream) with `trainer.io_utils.read_geotiff`
+- Created `trainer/io_utils.py` with `read_geotiff()` using rasterio
 
 ### Removed
 
 | File | Reason |
 |------|--------|
 | `requirements.txt` | Redundant with `pyproject.toml` |
-| `detectron2/` | Unmodified upstream; now installed via pip |
 
 ## Files Removed
 

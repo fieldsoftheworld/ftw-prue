@@ -14,17 +14,16 @@ This repo benchmarks field boundary segmentation across 25 countries using stand
 git clone --recurse-submodules https://github.com/fieldsoftheworld/ftw-prue.git
 cd ftw-prue
 
-# using uv (recommended)
-uv pip install -e .            # core: training + eval
-uv pip install -e ".[gfm]"    # + foundation model encoders
-uv pip install -e ".[sam2]"   # + SAM2 finetuning
-pip install -e detectron2/ --no-build-isolation  # vendored detectron2 (modified for multispectral)
-uv pip install -e ".[m2f]"    # + Mask2Former deps
-uv pip install -e ".[dev]"    # + pytest, ruff
-uv pip install -e ".[all]"    # everything
-```
+pip install -e .               # core: training + eval
+pip install -e ".[gfm]"       # + foundation model encoders
+pip install -e ".[sam2]"      # + SAM2 finetuning
+pip install -e ".[dev]"       # + pytest, ruff
+pip install -e ".[all]"       # everything
 
-`pip install -e .` works too if you don't have [uv](https://docs.astral.sh/uv/).
+# Mask2Former (requires vendored detectron2)
+pip install -e detectron2/ --no-build-isolation
+pip install -e ".[m2f]"
+```
 
 Download the FTW dataset per the [ftw-baselines instructions](https://github.com/fieldsoftheworld/ftw-baselines) and place it at `./data/ftw` (or set `FTW_DATA_DIR`).
 

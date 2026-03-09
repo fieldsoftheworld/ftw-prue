@@ -31,19 +31,16 @@ Summary of changes made to consolidate the multi-branch PhD student codebase int
 | TerraFM / DINOv3 / TerraMind | pip deps (thin wrappers) | Already just adapter code around installed packages |
 | DECODE (FracTAL ResUNet) | In-repo (original) | No external upstream |
 
-### Package Manager
-
-Switched to **uv** as recommended package manager. `pip install -e .` still works.
-
 ### Dependency Groups (pyproject.toml)
 
 | Group | Install | What |
 |-------|---------|------|
-| core | `uv pip install -e .` | Training + eval with standard models |
-| `[gfm]` | `uv pip install -e ".[gfm]"` | Foundation model encoders (terratorch, transformers, etc.) |
-| `[sam2]` | `uv pip install -e ".[sam2]"` | SAM2 finetuning (sam2, hydra-core) |
-| `[dev]` | `uv pip install -e ".[dev]"` | Testing + formatting (pytest, ruff) |
-| `[all]` | `uv pip install -e ".[all]"` | Everything |
+| core | `pip install -e .` | Training + eval with standard models |
+| `[gfm]` | `pip install -e ".[gfm]"` | Foundation model encoders (terratorch, transformers, etc.) |
+| `[sam2]` | `pip install -e ".[sam2]"` | SAM2 finetuning (sam2, hydra-core) |
+| `[m2f]` | `pip install -e detectron2/ --no-build-isolation && pip install -e ".[m2f]"` | Mask2Former panoptic segmentation |
+| `[dev]` | `pip install -e ".[dev]"` | Testing + formatting (pytest, ruff) |
+| `[all]` | `pip install -e ".[all]"` | Everything |
 
 ### Formatting
 
@@ -84,7 +81,7 @@ Added `detectron2/`, `mask2former/`, `panopticapi/` to ruff `extend-exclude` —
 
 ### Dependency Group
 
-Added `[m2f]` optional dep group: `pillow`, `pycocotools`, `fvcore`, `iopath`. Vendored detectron2 installed separately via `pip install -e detectron2/ --no-build-isolation`.
+Added `[m2f]` optional dep group: `pillow`, `pycocotools`, `fvcore`, `iopath`. Vendored detectron2 installed separately: `pip install -e detectron2/ --no-build-isolation`.
 
 ### Fixes
 

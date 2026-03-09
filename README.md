@@ -13,14 +13,16 @@ This repo benchmarks field boundary segmentation across 25 countries using stand
 ```bash
 git clone --recurse-submodules https://github.com/fieldsoftheworld/ftw-prue.git
 cd ftw-prue
-pip install -e .            # core: training + eval
-pip install -e ".[gfm]"    # + foundation model encoders
-pip install -e ".[sam2]"   # + SAM2 finetuning
-pip install -e ".[dev]"    # + pytest, ruff
-pip install -e ".[all]"    # everything
+
+# using uv (recommended)
+uv pip install -e .            # core: training + eval
+uv pip install -e ".[gfm]"    # + foundation model encoders
+uv pip install -e ".[sam2]"   # + SAM2 finetuning
+uv pip install -e ".[dev]"    # + pytest, ruff
+uv pip install -e ".[all]"    # everything
 ```
 
-[uv](https://docs.astral.sh/uv/) works too: `uv pip install -e ".[all]"`.
+`pip install -e .` works too if you don't have [uv](https://docs.astral.sh/uv/).
 
 Download the FTW dataset per the [ftw-baselines instructions](https://github.com/fieldsoftheworld/ftw-baselines) and place it at `./data/ftw` (or set `FTW_DATA_DIR`).
 

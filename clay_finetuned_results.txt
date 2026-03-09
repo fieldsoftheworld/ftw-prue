@@ -1,6 +1,0 @@
-Found 21 files. Reading data as CSV/Text...
-
-======================================================================
-======================================================================
-                 pixel_level_iou  pixel_level_precision  pixel_level_recall  object_level_precision  object_level_recall  object_level_f1
-Overall Average            0.732                  0.908               0.785                   0.463                0.396            0.422

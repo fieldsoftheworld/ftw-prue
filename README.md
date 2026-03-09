@@ -1,135 +1,70 @@
-# PRUE: A Practical Recipe for Field Boundary Segmentation at Scale
+# PRUE
 
-Official repository for "PRUE: A Practical Recipe for Field Boundary Segmentation at Scale" (CVPR 2025).
+**A Practical Recipe for Field Boundary Segmentation at Scale**
 
-<!--
-TODO: Add arxiv link and bibtex when available
--->
+CVPR 2025 &middot; [Paper (coming soon)]() &middot; [Fields of the World](https://github.com/fieldsoftheworld/ftw-baselines)
 
-## Overview
+---
 
-Benchmark for field boundary segmentation on the [Fields of the World (FTW)](https://github.com/fieldsoftheworld/ftw-baselines) dataset. Supports:
+This repo benchmarks field boundary segmentation across 25 countries using standard segmentation models, geospatial foundation model (GFM) encoders, and custom architectures (DECODE, SAM2) on the [Fields of the World (FTW)](https://github.com/fieldsoftheworld/ftw-baselines) dataset.
 
-- **Standard segmentation models**: U-Net, DeepLabV3+, FCN, UPerNet, SegFormer, DPT
-- **Foundation model encoders**: Clay, TerraFM, DINOv3, TerraMind, CROMA, DeCUR, DOFA, Prithvi, SatLAS, SoftCon, Galileo
-- **Custom architectures**: DECODE (FracTAL ResUNet), SAM2
-- **Multi-task learning**: segmentation + boundary detection + distance regression
-- Feature extraction and precomputed embedding pipelines
-- Per-country evaluation across 25 countries
-
-## Installation
+## Setup
 
 ```bash
-# Clone with submodules (galileo benchmark models)
 git clone --recurse-submodules https://github.com/fieldsoftheworld/ftw-prue.git
 cd ftw-prue
-
-# Core install (training + eval with standard models)
-uv pip install -e .
-
-# With foundation model encoders (Clay, TerraFM, TerraMind, etc.)
-uv pip install -e ".[gfm]"
-
-# With SAM2 support
-uv pip install -e ".[sam2]"
-
-# With dev tools (testing, formatting)
-uv pip install -e ".[dev]"
-
-# Everything
-uv pip install -e ".[all]"
+pip install -e .            # core: training + eval
+pip install -e ".[gfm]"    # + foundation model encoders
+pip install -e ".[sam2]"   # + SAM2 finetuning
+pip install -e ".[dev]"    # + pytest, ruff
+pip install -e ".[all]"    # everything
 ```
 
-> Works with plain `pip install -e .` too if you don't use [uv](https://docs.astral.sh/uv/).
+[uv](https://docs.astral.sh/uv/) works too: `uv pip install -e ".[all]"`.
 
-### Formatting
+Download the FTW dataset per the [ftw-baselines instructions](https://github.com/fieldsoftheworld/ftw-baselines) and place it at `./data/ftw` (or set `FTW_DATA_DIR`).
 
-```bash
-# Format 1st-party code only (excludes submodules/vendored code)
-ruff format .
-```
-
-## Data Setup
-
-1. Download the FTW dataset following [ftw-baselines](https://github.com/fieldsoftheworld/ftw-baselines)
-2. Place under `./data/ftw` (or set `FTW_DATA_DIR` / `FTW_DATA_ROOT` env var)
-
-## Repository Structure
+## Repo layout
 
 ```
-ftw_tools/          # Core package: training, eval, data, losses, metrics, postprocessing
-pretrained/         # Foundation model encoder wrappers + feature extraction
-decode/             # FracTAL ResUNet multi-task model
-sam2_ftw/           # SAM2 finetuning pipeline
-configs/            # Training configs (2-class, 3-class, ViT)
-tools/              # Utilities: throughput benchmark, COCO converter, split search
-GFMs/               # Scripts for extracting GFM embeddings (CROMA, DeCUR, etc.)
-tests/              # Unit tests
+ftw_tools/       Core package — datasets, trainers, losses, metrics, postprocessing
+pretrained/      GFM encoder wrappers + feature extraction
+decode/          DECODE (FracTAL ResUNet) multi-task model
+sam2_ftw/        SAM2 finetuning pipeline
+configs/         Training configs (2-class, 3-class, ViT variants)
+GFMs/            Embedding extraction scripts (CROMA, DeCUR, DOFA, …)
+tools/           Throughput benchmark, COCO converter, split search
+tests/           Unit tests
 ```
 
-## Available Models
+## Models
 
-### Standard Segmentation Models
+**Standard decoders** — U-Net, DeepLabV3+, FCN, UPerNet, SegFormer, DPT (via [smp](https://github.com/qubvel-org/segmentation_models.pytorch) / [timm](https://github.com/huggingface/pytorch-image-models))
 
-Direct image-to-segmentation with standard backbones.
+**GFM encoders** — Clay, TerraFM, DINOv3, TerraMind, CROMA, DeCUR, DOFA, Prithvi, SatLAS, SoftCon, Galileo
 
-| Model | Config key | Example backbone |
-|-------|-----------|-----------------|
-| U-Net | `unet` | `efficientnet-b3`, `resnet50` |
-| DeepLabV3+ | `deeplabv3+` | `resnet50` |
-| FCN | `fcn` | `resnet50` |
-| UPerNet | `upernet` | `resnet50` |
-| SegFormer | `segformer` | `mit_b2` |
-| DPT | `dpt` | `vit_base_patch16_384` |
-
-### Foundation Models (GFM)
-
-Pretrained satellite encoders with segmentation decoders. Set `model: "gfm"`.
-
-| Encoder | Key | Source |
-|---------|-----|--------|
-| Clay v1.5 | `clay` | [Made With Clay](https://github.com/Clay-foundation/model) |
-| TerraFM | `terrafm` | IBM |
-| DINOv3 | `dinov3` | - |
-| TerraMind | `terramind` | DLR |
-| CROMA / DeCUR / DOFA / Prithvi / SatLAS / SoftCon / Galileo | respective keys | [Galileo benchmark](https://github.com/nasaharvest/galileo) |
-
-Encoder checkpoints: `gfm_ckpts/encoders/` (or `GFM_CKPT_DIR` env var).
-
-### Custom Models
-
-- **DECODE** (`model: "decode"`): FracTAL ResUNet with multi-task head. See [`decode/README.md`](decode/README.md).
-- **SAM2** (`model: "sam2"`): SAM2 finetuned for field segmentation. See [`sam2_ftw/README.md`](sam2_ftw/README.md).
+**Custom** — DECODE (FracTAL ResUNet multi-task), SAM2 (temporal propagation)
 
 ## Training
 
-### With training scripts
-
 ```bash
-# GFM encoder (images)
+# GFM encoder (from images)
 ./train_gfm.sh clay images_noaug
 
-# GFM encoder (precomputed features)
+# GFM encoder (from precomputed features)
 ./train_gfm.sh terrafm features /path/to/features
 
-# DECODE model
+# Clay finetuning (encoder + decoder end-to-end)
+./train_clay.sh a online
+
+# DECODE
 ./train_gfm.sh decode images_noaug
 
-# Clay finetuning (encoder + decoder)
-./train_clay.sh a online
-```
-
-### With Lightning CLI
-
-```bash
+# Lightning CLI directly
 python -m ftw_tools.cli model fit --config configs/release/3_class/full-ftw.yaml
 ```
 
-Example configs in [`configs/release/`](configs/release/) and [`decode/config_example.yaml`](decode/config_example.yaml).
-
 ## Evaluation
-
-### With eval scripts
 
 ```bash
 # All GFM models
@@ -140,11 +75,8 @@ Example configs in [`configs/release/`](configs/release/) and [`decode/config_ex
 
 # Clay finetuned
 ./eval_clay.sh main
-```
 
-### With Lightning CLI
-
-```bash
+# Lightning CLI
 python -m ftw_tools.cli model test \
   --model checkpoint.ckpt \
   --countries france \
@@ -155,9 +87,7 @@ python -m ftw_tools.cli model test \
   --out results.json
 ```
 
-Decoder checkpoints: `gfm_ckpts/decoders/{main,supp}/<model_name>/`
-
-## Feature Extraction
+## Feature extraction
 
 Precompute embeddings for the full dataset:
 
@@ -165,26 +95,17 @@ Precompute embeddings for the full dataset:
 python -m pretrained.models.compute_feats --model clay --batch_size 32
 ```
 
-Per-model embedding extraction scripts in [`GFMs/`](GFMs/).
+Per-model scripts in [`GFMs/`](GFMs/).
 
-## Tools
+## Environment variables
 
-| Tool | Description |
-|------|-------------|
-| `tools/benchmark_throughput.py` | Benchmark model inference speed (km²/s) |
-| `tools/ftw_to_coco.py` | Convert FTW dataset to COCO format |
-| `tools/search_ftw_image_splits.py` | Look up image filenames by split index |
-| `aggregate.py` | Aggregate per-country metrics into overall results |
-| `visualize.py` | Visualize model predictions vs ground truth |
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `FTW_DATA_DIR` / `FTW_DATA_ROOT` | `./data/ftw` | FTW dataset root |
-| `GFM_CKPT_DIR` | `./gfm_ckpts/encoders` | GFM encoder checkpoints |
-| `CLAY_CKPT_PATH` | - | Clay finetuned checkpoint (for eval_clay.sh) |
-| `SAM2_CHECKPOINT_PATH` | - | SAM2 base checkpoint |
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FTW_DATA_DIR` / `FTW_DATA_ROOT` | `./data/ftw` | Dataset root |
+| `GFM_CKPT_DIR` | `./gfm_ckpts/encoders` | Encoder checkpoints |
+| `CLAY_CKPT_PATH` | *(required)* | Clay checkpoint for `eval_clay.sh` |
+| `SAM2_CHECKPOINT_PATH` | *(required)* | SAM2 base checkpoint |
+| `SAM2_MODEL_CFG` | `sam2_hiera_s.yaml` | SAM2 model config |
 
 ## Testing
 

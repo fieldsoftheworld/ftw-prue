@@ -20,6 +20,38 @@ Summary of changes made to consolidate the multi-branch PhD student codebase int
 | `ftw_sam2` | Superseded by `ftw_sam2v2` |
 | `prue-sam` | Older SAM approach, superseded by SAM2 pipeline |
 
+## Submodules & Dependencies
+
+| Dependency | Strategy | Reason |
+|-----------|----------|--------|
+| Galileo (`nasaharvest/galileo`) | Git submodule at `pretrained/models/galileo_benchmark/galileo` | Not on PyPI; `galileo_wrappers.py` imports from `galileo/src/` |
+| SAM2 (`facebookresearch/sam2`) | pip dep (`sam2>=1.0`) | On PyPI; removed all `sys.path` hacks and `SAM2_REPO_PATH` |
+| Clay (`Clay-foundation/model`) | Vendored (modified) | Custom `SegmentEncoder` inherits from vendored `Encoder` class; converted sys.path hack to proper relative import |
+| TerraFM / DINOv3 / TerraMind | pip deps (thin wrappers) | Already just adapter code around installed packages |
+| DECODE (FracTAL ResUNet) | In-repo (original) | No external upstream |
+
+### Package Manager
+
+Switched to **uv** as recommended package manager. `pip install -e .` still works.
+
+### Dependency Groups (pyproject.toml)
+
+| Group | Install | What |
+|-------|---------|------|
+| core | `uv pip install -e .` | Training + eval with standard models |
+| `[gfm]` | `uv pip install -e ".[gfm]"` | Foundation model encoders (terratorch, transformers, etc.) |
+| `[sam2]` | `uv pip install -e ".[sam2]"` | SAM2 finetuning (sam2, hydra-core) |
+| `[dev]` | `uv pip install -e ".[dev]"` | Testing + formatting (pytest, ruff) |
+| `[all]` | `uv pip install -e ".[all]"` | Everything |
+
+### Formatting
+
+Ruff configured for **formatting only** (no linting). Excludes:
+- `pretrained/models/galileo_benchmark/galileo/` (submodule)
+- `pretrained/models/clay/src/` (vendored upstream code)
+
+Applied `ruff format .` to all 1st-party code (81 files).
+
 ## Files Removed
 
 | File/Directory | Reason |
@@ -81,6 +113,5 @@ All user-specific absolute paths (`/u/`, `/projects/`, `/nfs/`) replaced with en
 | `GFM_CKPT_DIR` | `./gfm_ckpts/encoders` | `train_clay.sh` |
 | `CLAY_CKPT_PATH` | *(required)* | `eval_clay.sh` |
 | `SAM2_ROOT` | auto-detect | `build_sam_v2.py` |
-| `SAM2_REPO_PATH` | *(required)* | SAM2 train/test/eval scripts |
 | `SAM2_CHECKPOINT_PATH` | *(required)* | SAM2 train/test/eval scripts |
 | `SAM2_MODEL_CFG` | `sam2_hiera_s.yaml` | `sam2_ftw_train.py` |

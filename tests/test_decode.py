@@ -11,7 +11,7 @@ class TestFracTALResUNetCMTSK:
     @pytest.mark.parametrize("n_classes", [2, 3])
     def test_forward(self, in_channels, n_classes):
         model = FracTAL_ResUNet_cmtsk(
-            nfilters_init=64,
+            nfilters_init=32,
             depth=3,
             NClasses=n_classes,
             in_channels=in_channels,
@@ -24,12 +24,12 @@ class TestFracTALResUNetCMTSK:
 
     def test_output_ranges(self):
         model = FracTAL_ResUNet_cmtsk(
-            nfilters_init=64,
+            nfilters_init=32,
             depth=3,
             NClasses=2,
-            in_channels=8,
+            in_channels=4,
         )
-        x = torch.randn(1, 8, 256, 256)
+        x = torch.randn(1, 4, 256, 256)
         seg, bound, dist = model(x)
         # seg uses softmax, bound uses crisp sigmoid, dist uses sigmoid
         assert seg.min() >= 0 and seg.max() <= 1

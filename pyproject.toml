@@ -58,8 +58,11 @@ eval = [
     "pycocotools>=2.0",
 ]
 da = [
-    # DelineateAnything adapter (requires ftw-baselines)
-    "ftw-tools",
+    # DelineateAnything adapter
+    # Also requires ftw-baselines (provides ftw_tools.inference.models.DelineateAnything):
+    #   pip install git+https://github.com/fieldsoftheworld/ftw-baselines.git
+    # NOTE: ftw-baselines installs as ftw_tools which conflicts with this repo's ftw_tools/;
+    #   install in a separate venv or use the prue-eval branch's submodule approach
     "ultralytics>=8.0",
 ]
 decode = [

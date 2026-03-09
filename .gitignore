@@ -37,7 +37,7 @@ coverage.xml
 Thumbs.db
 
 # Project-specific
-data/
+/data/
 logs/
 gfm_ckpts/
 results/

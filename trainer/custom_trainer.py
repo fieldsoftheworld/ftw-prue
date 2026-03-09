@@ -14,7 +14,6 @@ from detectron2.engine import DefaultTrainer, hooks
 from detectron2.evaluation import (
     COCOEvaluator,
     COCOPanopticEvaluator,
-    FilteredCOCOPanopticEvaluator,
     SemSegEvaluator,
     DatasetEvaluators,
 )
@@ -25,7 +24,10 @@ from fvcore.nn.precise_bn import get_bn_modules
 from detectron2.checkpoint import DetectionCheckpointer
 
 sys.path.insert(0, "../")
-from mask2former.data.dataset_mappers import COCOPanopticNewBaselineDatasetMapperCustom, COCOInstanceCustomDatasetMapper
+from mask2former.data.dataset_mappers.coco_panoptic_new_baseline_dataset_mapper_custom import (
+    COCOPanopticNewBaselineDatasetMapperCustom,
+)
+from mask2former.data.dataset_mappers.coco_instance_custom_dataset_mapper import COCOInstanceCustomDatasetMapper
 from .custom_hooks import CheckpointCleanupHook, ValidationHook, PredictionVisualizationHook
 from .evaluation import FTWEvaluator
 from mask2former.modeling.backbone.swin import D2SwinTransformer

@@ -39,7 +39,7 @@ def get_encoder(model_name: str, device: torch.device, weights_path: str = None)
             ckpt_path=weights,
             freeze_encoder="all",
         ).to(device)
-        encoder.eval()
+        # encoder.eval()
         return encoder
 
     elif model_name == "terrafm":

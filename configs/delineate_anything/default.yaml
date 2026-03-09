@@ -1,0 +1,32 @@
+model:
+  name: "delineate_anything"
+  variant: "DelineateAnything"  # or "DelineateAnything-S" for smaller/faster model
+  
+  # Model weights
+  weights: "/nfs/hpc/share/fangzha/weights/delineate_anything_rgb_yolo11x-88ede029.pt"
+  # For small variant: "/nfs/hpc/share/fangzha/weights/delineate_anything_s_rgb_yolo11n-b879d643.pt"
+
+# Inference parameters
+inference:
+  # Image processing
+  patch_size: 256
+  resize_factor: 2  # Input to model will be 512x512
+  temporal_options: "windowA"  # Use single temporal window (RGBN), model extracts RGB
+  
+  # Detection parameters
+  max_detections: 100  # Maximum number of detections per image
+  confidence_threshold: 0.05  # Lower for instance segmentation (YOLO default)
+  iou_threshold: 0.3  # NMS IoU threshold for removing overlapping detections
+  min_area: 0  # Minimum area in pixels (0 = no filtering)
+  
+  # Batch processing
+  batch_size: 1  # DelineateAnything processes images individually
+  num_workers: 4
+
+# Notes:
+# - DelineateAnything uses RGB channels only (extracts from first 3 channels)
+# - confidence_threshold of 0.05 is YOLO's default and works well for fields
+# - Higher confidence_threshold (e.g., 0.5) will drastically reduce detections
+# - The model already applies NMS internally, so no double filtering occurs
+# - For smaller model with faster inference, use variant: "DelineateAnything-S"
+

@@ -52,6 +52,16 @@ m2f = [
     "fvcore>=0.1.5",
     "iopath>=0.1.9",
 ]
+eval = [
+    # PRUE evaluation framework
+    # SAM1 adapter requires: pip install git+https://github.com/facebookresearch/segment-anything.git
+    "pycocotools>=2.0",
+]
+da = [
+    # DelineateAnything adapter (requires ftw-baselines)
+    "ftw-tools",
+    "ultralytics>=8.0",
+]
 decode = [
     # DECODE (FracTAL ResUNet) has no extra deps beyond core
 ]
@@ -60,7 +70,7 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.8",
 ]
-all = ["ftw-prue[gfm,sam2,m2f,dev]"]
+all = ["ftw-prue[gfm,sam2,m2f,eval,dev]"]
 
 [project.scripts]
 ftw = "ftw_tools.cli:cli"
@@ -70,7 +80,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["ftw_tools*", "pretrained*", "decode*", "trainer*"]
+include = ["ftw_tools*", "pretrained*", "decode*", "trainer*", "prue_eval*"]
 
 # --- Ruff: formatting only, no linting ---
 [tool.ruff]
@@ -84,6 +94,8 @@ extend-exclude = [
     "detectron2",
     "mask2former",
     "panopticapi",
+    "prue_eval/models/sam",
+    "prue_eval/models/delineate_anything",
 ]
 
 [tool.ruff.format]

@@ -1,0 +1,10 @@
+_BASE_: /nfs/stak/users/fangzha/projects/ag-seg/configs/ftw/panoptic-segmentation/swin/maskformer2_swin_small_bs16_50ep.yaml
+
+MODEL:
+  WEIGHTS: "/path/to/mask2former_swin_small_weights.pth"  # overridden by local config
+
+DATASETS:
+  ORIGINAL_ROOT: "/path/to/ftw/data"  # not used directly by ftw-prue, kept for reference
+
+OUTPUT_DIR: "./outputs/m2f_default_eval"
+

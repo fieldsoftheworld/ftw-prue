@@ -22,7 +22,7 @@ import warnings
 warnings.filterwarnings("ignore", message="cannot import name '_C' from 'sam2'")
 
 # Add project root to path
-sam2_repo_path = Path("/projects/benq/atwollam/FTW-Bakeoff/specialized_field_models/sam2/sam2")
+sam2_repo_path = Path(os.environ.get("SAM2_REPO_PATH", "."))
 sys.path.insert(0, str(sam2_repo_path))
 
 # Patch SAM2 internal tqdm to be silent
@@ -40,8 +40,8 @@ from hydra import initialize
 from dataset_v2 import FTW
 from metrics_v2 import get_object_level_metrics
 
-DATA_ROOT = "/projects/benq/ftw-data/data/ftw"
-CHECKPOINT_PATH = "/projects/benq/atwollam/FTW-Bakeoff/specialized_field_models/sam2/sam2/checkpoints/sam2.1_hiera_small.pt"
+DATA_ROOT = os.environ.get("FTW_DATA_ROOT", "./data/ftw")
+CHECKPOINT_PATH = os.environ.get("SAM2_CHECKPOINT_PATH", None)
 MODEL_CFG = "configs/sam2.1/sam2.1_hiera_s.yaml"
 
 OUTPUT_DIR = "sam2_ftw_eval"

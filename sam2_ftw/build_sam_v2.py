@@ -14,7 +14,7 @@ from omegaconf import OmegaConf
 import sam2
 
 # Absolute path to SAM2 package root where configs are located
-SAM2_ROOT = "/projects/benq/atwollam/FTW-Bakeoff/specialized_field_models/sam2/sam2/sam2"
+SAM2_ROOT = os.environ.get("SAM2_ROOT", os.path.dirname(sam2.__file__))
 
 HF_MODEL_ID_TO_FILENAMES = {
     "facebook/sam2-hiera-tiny": (

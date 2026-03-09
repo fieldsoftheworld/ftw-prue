@@ -69,7 +69,7 @@ echo "=============================="
 # ------------------------------
 # Encoder weights
 # ------------------------------
-ENCODER_DIR="/projects/benq/ftw-data/gfm_ckpts/encoders"
+ENCODER_DIR="${GFM_CKPT_DIR:-./gfm_ckpts/encoders}"
 WEIGHTS_PATH="$ENCODER_DIR/clay/clay-v1.5.ckpt"
 
 # ------------------------------

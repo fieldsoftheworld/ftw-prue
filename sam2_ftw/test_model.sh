@@ -2,7 +2,7 @@
 # Quick test script for SAM-2 FTW model
 
 CHECKPOINT_PATH="${1:-logs/sam2-ftw-3-class/checkpoints/last.ckpt}"
-DATA_DIR="${2:-/u/gmuhawenayo/datasets/FTW-Dataset/ftw}"
+DATA_DIR="${2:-${FTW_DATA_ROOT:-./data/ftw}}"
 OUTPUT_FILE="${3:-sam2_ftw/test_results.json}"
 GPU="${4:--1}"  # -1 for CPU, 0 for GPU
 

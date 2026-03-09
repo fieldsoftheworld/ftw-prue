@@ -28,16 +28,16 @@ def denormalize(img_tensor, mean, std):
     if not isinstance(std, torch.Tensor):
         std = torch.tensor(std)
         
-    mean = mean.to(img_tensor_device).view(-1, 1, 1)
-    std = std.to(img_tensor_device).view(-1, 1, 1)
+    mean = mean.to(img_tensor.device).view(-1, 1, 1)
+    std = std.to(img_tensor.device).view(-1, 1, 1)
     
     return (img_tensor * std) + mean
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize Clay Model Predictions")
     parser.add_argument("--country", type=str, required=True, help="Country to visualize")
-    parser.add_argument("--ckpt_path", type=str, default="/u/subashk/storage/ftw-prue/logs/FTW-Release-Full-3-class-ViT/FTW-gfm/amap63c9/checkpoints/27-0.0000.ckpt", help="Path to model checkpoint")
-    parser.add_argument("--data_dir", type=str, default="/projects/benq/ftw-data/data/ftw", help="Path to FTW dataset")
+    parser.add_argument("--ckpt_path", type=str, required=True, help="Path to model checkpoint")
+    parser.add_argument("--data_dir", type=str, default="./data/ftw", help="Path to FTW dataset")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--out", type=str, default=None, help="Output plot filename")
     
@@ -155,9 +155,6 @@ if __name__ == "__main__":
         full_img = sample["image"] # [8, H, W]
         C_half = full_img.shape[0] // 2
         
-        global img_tensor_device
-        img_tensor_device = full_img.device
-
         win_b_norm = full_img[:C_half]
         win_a_norm = full_img[C_half:]
         

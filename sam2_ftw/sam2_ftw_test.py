@@ -23,13 +23,13 @@ from tqdm import tqdm
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-sam2_repo_path = Path("/u/gmuhawenayo/projects/sam2")
+sam2_repo_path = Path(os.environ.get("SAM2_REPO_PATH", "."))
 sys.path.insert(0, str(sam2_repo_path))
 
 from sam2.build_sam import build_sam2_video_predictor
-DATA_ROOT = "/u/gmuhawenayo/datasets/FTW-Dataset/ftw"
+DATA_ROOT = os.environ.get("FTW_DATA_ROOT", "./data/ftw")
 MODEL_CFG = "sam2_hiera_s.yaml"
-BASE_CHECKPOINT = "/u/gmuhawenayo/projects/sam2/checkpoints/sam2.1_hiera_small.pt"
+BASE_CHECKPOINT = os.environ.get("SAM2_CHECKPOINT_PATH", None)
 FINE_TUNED_DECODER = "sam2_ftw/mask_decoder_final.pt"
 
 COUNTRIES = ["france"]

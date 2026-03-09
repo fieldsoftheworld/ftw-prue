@@ -1,4 +1,4 @@
-#!/nfs/hpc/share/fangzha/envs/ftw/bin/python
+#!/usr/bin/env python3
 """
 Get FTW Image Filename by Split Index
 
@@ -140,8 +140,8 @@ Examples:
     parser.add_argument(
         "--data_root",
         type=str,
-        default="/nfs/hpc/share/fangzha/data/ftw",
-        help="Root directory of FTW dataset (default: /nfs/hpc/share/fangzha/data/ftw)"
+        default="./data/ftw",
+        help="Root directory of FTW dataset"
     )
     parser.add_argument(
         "--country",

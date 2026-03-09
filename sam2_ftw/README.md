@@ -103,7 +103,7 @@ python -m ftw_tools.cli model test \
   --test_split test \
   --input_type images \
   --temporal_options sam2 \
-  --dir /u/gmuhawenayo/datasets/FTW-Dataset/ftw \
+  --dir /path/to/ftw \
   --gpu -1 \
   --out sam2_ftw/test_results.json
 ```
@@ -117,7 +117,7 @@ Or use the provided test script:
 # Custom checkpoint and output
 ./sam2_ftw/test_model.sh \
   logs/sam2-ftw-3-class/checkpoints/best.ckpt \
-  /u/gmuhawenayo/datasets/FTW-Dataset/ftw \
+  /path/to/ftw \
   sam2_ftw/my_results.json \
   -1  # GPU (-1 for CPU, 0 for GPU)
 ```

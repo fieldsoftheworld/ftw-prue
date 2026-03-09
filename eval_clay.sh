@@ -16,7 +16,7 @@ echo "🚀 Clay Full-Model Evaluation | Expr: $EXPR_TYPE | Input: images_noaug"
 # =========================================
 # Clay FULL checkpoint (encoder + decoder)
 # =========================================
-CKPT_PATH="/projects/bdbk/subashk/ftw-prue-clayfinetuned/logs/clay_finetuned_run_amap63c9_27.ckpt"
+CKPT_PATH="${CLAY_CKPT_PATH:?Set CLAY_CKPT_PATH to the Clay finetuned checkpoint}"
 
 if [[ ! -f "$CKPT_PATH" ]]; then
   echo "❌ Clay checkpoint not found: $CKPT_PATH"
@@ -52,7 +52,7 @@ for COUNTRY_NAME in "${FULL_DATA_COUNTRIES[@]}"; do
     --countries "$COUNTRY_NAME" \
     --test_split "$COUNTRY_SPLIT" \
     --input_type "images_noaug" \
-    --dir /projects/benq/ftw-data/data/ftw \
+    --dir "${FTW_DATA_DIR:-./data/ftw}" \
     --gpu "$GPU" \
     --model_predicts_3_classes \
     --test_on_3_classes \

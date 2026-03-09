@@ -10,7 +10,7 @@ from torchgeo.trainers import BaseTask
 from torchmetrics import JaccardIndex, MetricCollection, Precision, Recall
 from tqdm import tqdm
 
-from ftw_tools.postprocess.metrics import get_object_level_metrics
+from ftw_tools.postprocess.metrics import get_object_level_metrics, Evaluator, Detections
 from ftw_tools.torchgeo.datasets import FTW
 from ftw_tools.torchgeo.trainers import CustomSemanticSegmentationTask
 from box import Box
@@ -304,6 +304,11 @@ def test(
     # ---------------------------------------------
     all_tps = all_fps = all_fns = 0
     num_classes = 3 if model_predicts_3_classes else 2
+    
+    all_gt_dets = []
+    all_pred_dets = []
+    image_ids = []
+    img_id_counter = 0
 
     for batch in tqdm(dl):
         x = prepare_input(batch, input_type, device)
@@ -341,11 +346,29 @@ def test(
             all_tps += t
             all_fps += f
             all_fns += n
+            
+            # COCO metrics - convert masks to Detections
+            # Use probability from logits for predictions if available, else 1.0
+            # Since logits shape is [B, C, H, W], we take softmax for the predicted class
+            probs = torch.softmax(logits[i], dim=0)
+            pred_conf = probs[1].cpu().numpy() if num_classes == 2 else probs[1:].max(dim=0)[0].cpu().numpy()
+            
+            pred_dets = Detections(out_np[i], confidence_map=pred_conf)
+            gt_dets = Detections(mask_np[i])
+            
+            all_pred_dets.append(pred_dets)
+            all_gt_dets.append(gt_dets)
+            image_ids.append(img_id_counter)
+            img_id_counter += 1
 
     # ---------------------------------------------
     # Aggregate results
     # ---------------------------------------------
     results   = metrics.compute()
+    
+    coco_evaluator = Evaluator(iou_threshold=iou_threshold, metrics=["coco"], image_ids=image_ids)
+    coco_results = coco_evaluator.evaluate(all_gt_dets, all_pred_dets)
+    
     pixel_iou = results["MulticlassJaccardIndex"][1].item()
     pixel_prec = results["MulticlassPrecision"][1].item()
     pixel_recall = results["MulticlassRecall"][1].item()
@@ -368,6 +391,11 @@ def test(
     print(f"Object Precision:        {object_precision:.4f}")
     print(f"Object Recall:           {object_recall:.4f}")
     print(f"Object F1:               {object_f1:.4f}")
+    
+    if coco_results:
+        print("\nCOCO Metrics:")
+        for k, v in coco_results.items():
+            print(f"{k:20}: {v:.2f}")
 
     # ---------------------------------------------
     # Save CSV row
@@ -380,13 +408,22 @@ def test(
         header = (
             "train_checkpoint,test_countries,pixel_level_iou,"
             "pixel_level_precision,pixel_level_recall,"
-            "object_level_precision,object_level_recall,object_level_f1\n"
+            "object_level_precision,object_level_recall,object_level_f1,"
+            "coco_AP,coco_AP50,coco_AP75,coco_APs,coco_APm,coco_APl\n"
         )
         file_exists = os.path.exists(out)
 
         with open(out, "a") as f:
             if not file_exists:
                 f.write(header)
+            
+            c_ap = coco_results.get('coco_AP', float('nan'))
+            c_ap50 = coco_results.get('coco_AP50', float('nan'))
+            c_ap75 = coco_results.get('coco_AP75', float('nan'))
+            c_aps = coco_results.get('coco_APs', float('nan'))
+            c_apm = coco_results.get('coco_APm', float('nan'))
+            c_apl = coco_results.get('coco_APl', float('nan'))
+                
             f.write(
                 f"{model_path},{country_str},"
                 f"{round(pixel_iou,3)},"
@@ -394,5 +431,11 @@ def test(
                 f"{round(pixel_recall,3)},"
                 f"{round(object_precision,3)},"
                 f"{round(object_recall,3)},"
-                f"{round(object_f1,3)}\n"
+                f"{round(object_f1,3)},"
+                f"{round(c_ap,3)},"
+                f"{round(c_ap50,3)},"
+                f"{round(c_ap75,3)},"
+                f"{round(c_aps,3)},"
+                f"{round(c_apm,3)},"
+                f"{round(c_apl,3)}\n"
             )

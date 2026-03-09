@@ -6,7 +6,7 @@
 AGGREGATE_SCRIPT="./aggregate.py"
 RESULT_DIR_BASE="./results"
 
-MODEL_NAME="clay"
+MODEL_NAME="clay-finetuned"
 EXPR_TYPE=${1:-main}
 COUNTRY_SPLIT=${COUNTRY_SPLIT:-test}
 GPU=0
@@ -16,7 +16,7 @@ echo "🚀 Clay Full-Model Evaluation | Expr: $EXPR_TYPE | Input: images_noaug"
 # =========================================
 # Clay FULL checkpoint (encoder + decoder)
 # =========================================
-CKPT_PATH="/u/subashk/storage/ftw-prue/logs/FTW-Release-Full-3-class-ViT/FTW-gfm/amap63c9/checkpoints/27-0.0000.ckpt"
+CKPT_PATH="/projects/bdbk/subashk/ftw-prue-clayfinetuned/logs/clay_finetuned_run_amap63c9_27.ckpt"
 
 if [[ ! -f "$CKPT_PATH" ]]; then
   echo "❌ Clay checkpoint not found: $CKPT_PATH"

@@ -22,7 +22,13 @@ def calculate_overall_average_metrics(directory_path: str, expr_type:str="main")
         'pixel_level_recall',
         'object_level_precision',
         'object_level_recall',
-        'object_level_f1'
+        'object_level_f1',
+        'coco_AP',
+        'coco_AP50',
+        'coco_AP75',
+        'coco_APs',
+        'coco_APm',
+        'coco_APl'
     ]
     
     # 1. Read and Combine Data

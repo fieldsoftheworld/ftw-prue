@@ -211,3 +211,6 @@ data/
 logs/
 gfm_ckpts/
 results/
+
+*.pt
+sam2_ftw/sam2_ftw_eval/*.csv

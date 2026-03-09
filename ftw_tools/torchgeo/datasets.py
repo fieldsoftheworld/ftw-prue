@@ -41,6 +41,47 @@ def get_distance(mask):
         distance_map = distance_map / distance_map.max()
     return distance_map.astype(np.float32)
 
+
+def sample_points_from_mask(mask, n=1, is_training=True):
+    """Sample points from binary field mask for SAM-2 prompts.
+    
+    Args:
+        mask: Binary field mask (numpy array, float32, 0 or 1)
+        n: Number of points to sample (default: 1 for training, 3 for testing)
+        is_training: If True, sample single point; if False, sample n points
+    
+    Returns:
+        points: Array of shape [n, 2] with (x, y) coordinates, or None if no points
+        labels: Array of shape [n] with all 1s (positive points), or None
+    """
+    ys, xs = np.where(mask > 0.5)
+    if len(xs) == 0:
+        return None, None
+    
+    if is_training:
+        idx = np.random.randint(len(xs))
+        points = np.array([[xs[idx], ys[idx]]], dtype=np.float32)
+        labels = np.array([1], dtype=np.int32)
+    else:
+        n_samples = min(n, len(xs))
+        idx = np.random.choice(len(xs), size=n_samples, replace=False)
+        points = np.stack([xs[idx], ys[idx]], axis=1).astype(np.float32)
+        labels = np.ones(len(points), dtype=np.int32)
+    
+    return points, labels
+
+
+def prepare_binary_field_mask(mask):
+    """Convert 3-class mask to binary field mask (classes 1 and 2 -> 1, else 0).
+    
+    Args:
+        mask: 3-class mask (numpy array)
+    
+    Returns:
+        Binary field mask (float32, 0 or 1)
+    """
+    return ((mask == 1) | (mask == 2)).astype(np.float32)
+
 class SingleRasterDataset(RasterDataset):
     """A torchgeo dataset that loads a single raster file."""
 
@@ -80,7 +121,10 @@ class FTW(NonGeoDataset):
         num_samples: int = -1,
         input_type: str = "images",
         feat_root: Optional[str] = None,
-        metadata_path: str = None
+        metadata_path: str = None,
+        sam2_max_image_size: int = 1024,
+        sam2_num_points: int = 1,
+        **kwargs: Any,
     ) -> None:
         """Initialize a new FTW dataset instance.
 
@@ -126,7 +170,11 @@ class FTW(NonGeoDataset):
         self.temporal_options = temporal_options
         self.num_samples = num_samples
         self.swap_order = swap_order
+        self.split = split
         self.compute_boundary_distance = False
+        self.sam2_mode = (temporal_options == "sam2")
+        self.sam2_max_image_size = sam2_max_image_size
+        self.sam2_num_points = sam2_num_points
         if metadata_path != None and self.preprocessing == "clay":
             self.with_metadata = True
         else:
@@ -162,7 +210,7 @@ class FTW(NonGeoDataset):
         all_img_filenames = []
         self.feat_filenames = []
         all_feat_filenames = []
-        ignore_list = ["g14-2_00059_7","g50_00037_0","g2_00036_9","g25_00014_11"] # filter out some bad samples for which I had corrupted features extracted/saved??
+        ignore_list = ["g14-2_00059_7","g50_00037_0","g2_00036_9","g25_00014_11"]
         
         for country in self.countries:
             country_root = os.path.join(self.root, country)
@@ -189,7 +237,6 @@ class FTW(NonGeoDataset):
                     )
                 )
 
-                # Skip the image AOI's which does not have all four corresponding files
                 if not (
                     window_b_fn.exists()
                     and window_a_fn.exists()
@@ -237,7 +284,7 @@ class FTW(NonGeoDataset):
                         )
 
 
-        if self.num_samples == -1:  # select all samples
+        if self.num_samples == -1:
             self.img_filenames = all_img_filenames
             self.feat_filenames = all_feat_filenames
         else:
@@ -344,7 +391,6 @@ class FTW(NonGeoDataset):
             window_b_feat = reshape_feat(torch.from_numpy(window_b_feat).float())
             window_a_feat = reshape_feat(torch.from_numpy(window_a_feat).float())
 
-            # Handle temporal options just like image mode
             if self.temporal_options == "stacked":
                 feat = torch.stack([window_b_feat, window_a_feat], dim=0)
             elif self.temporal_options == "windowA":
@@ -367,7 +413,54 @@ class FTW(NonGeoDataset):
         if "images" in self.input_type:
             img_filenames = self.img_filenames[index]
             
-            # Lists to collect the components
+            if self.sam2_mode:
+                with rasterio.open(img_filenames["window_a"]) as f:
+                    img_a_raw = f.read()[:3].astype(np.float32)
+                with rasterio.open(img_filenames["window_b"]) as f:
+                    img_b_raw = f.read()[:3].astype(np.float32)
+                
+                with rasterio.open(img_filenames["mask"]) as f:
+                    mask = f.read(1)
+                
+                FTW_NORM_CONST = 3000.0
+                img_a_np = (img_a_raw / FTW_NORM_CONST).transpose(1, 2, 0)
+                img_b_np = (img_b_raw / FTW_NORM_CONST).transpose(1, 2, 0)
+                
+                mask_resized = mask
+                
+                img_a_np = np.clip(img_a_np, 0.0, 1.0)
+                img_b_np = np.clip(img_b_np, 0.0, 1.0)
+                
+                img_a_np = (img_a_np * 255.0).astype(np.uint8)
+                img_b_np = (img_b_np * 255.0).astype(np.uint8)
+                
+                img_a = torch.from_numpy(img_a_np).permute(2, 0, 1).float()
+                img_b = torch.from_numpy(img_b_np).permute(2, 0, 1).float()
+                
+                field_mask = prepare_binary_field_mask(mask_resized)
+                
+                is_training = (self.split == "train")
+                points, labels = sample_points_from_mask(
+                    field_mask, 
+                    n=self.sam2_num_points, 
+                    is_training=is_training
+                )
+                
+                sample["window_a"] = img_a
+                sample["window_b"] = img_b
+                sample["field_mask"] = torch.from_numpy(field_mask).float()
+                sample["mask_3class"] = torch.from_numpy(mask_resized).long()
+                if points is not None:
+                    sample["points"] = torch.from_numpy(points).float()
+                    sample["point_labels"] = torch.from_numpy(labels).long()
+                else:
+                    sample["points"] = torch.zeros((1, 2), dtype=torch.float32)
+                    sample["point_labels"] = torch.zeros((1,), dtype=torch.long)
+                
+                sample["mask"] = sample["field_mask"].long()
+                
+                return sample
+            
             images = []
             time_vectors = [] 
             metadata_dict = None
@@ -375,7 +468,6 @@ class FTW(NonGeoDataset):
             current_gsd = self.gsd
             current_waves = self.waves
             
-            # --- 1. Determine and Load Windows ---
             windows_to_load = []
             if self.temporal_options in ("stacked", "median", "windowB", "rgb"):
                 windows_to_load.append("window_b")
@@ -384,9 +476,7 @@ class FTW(NonGeoDataset):
             if self.temporal_options == "random_window":
                 windows_to_load.append("window_a" if random.random() < 0.5 else "window_b")
             
-            # Process the determined windows
             for window_key in windows_to_load:
-                # Load the data dictionary
                 if self.preprocessing == "clay":
                     data_dict = prepare_clay_sample(
                         image_path=img_filenames[window_key], 
@@ -401,43 +491,36 @@ class FTW(NonGeoDataset):
                         preprocess=self.preprocessor,
                     )
         
-                # Always collect the image tensor
                 images.append(data_dict['image'])
                 
-                # Conditionally collect time vector and static metadata
                 if self.with_metadata:
                     time_vectors.append(data_dict["time"])
                     if metadata_dict is None:
-                        # Store the first dictionary for static metadata
                         metadata_dict = data_dict 
 
-            # Handle swapping order
             if self.swap_order and len(images) == 2:
                 images = [images[1], images[0]]
                 if self.with_metadata:
                     time_vectors = [time_vectors[1], time_vectors[0]]
 
-            # --- 2. Image Combination Logic ---
+            with rasterio.open(img_filenames["mask"]) as f:
+                mask = f.read(1)
+
             if self.temporal_options == "median":
                 images_np = np.stack([img.numpy() for img in images], axis=0).astype(np.float32)
                 image = torch.from_numpy(np.median(images_np, axis=0)).float()
             else:
                 image = torch.cat(images, dim=0).float()
                     
-            # --- 3. Finalize Sample Dictionary ---
             sample["image"] = image
             
             if self.with_metadata:
-                # Combine time vectors and add all static metadata
                 sample["time"] = torch.cat(time_vectors, dim=0) if len(time_vectors) > 1 else time_vectors[0]
                 sample["latlon"] = metadata_dict["latlon"]
                 sample["gsd"] = metadata_dict["gsd"]
                 sample["waves"] = metadata_dict["waves"]
                 sample["platform"] = metadata_dict["platform"]
 
-            # --- 4. Load Mask and Apply Transforms ---
-            with rasterio.open(img_filenames["mask"]) as f:
-                mask = f.read(1)
             sample["mask"] = torch.from_numpy(mask).long()
             
             if self.compute_boundary_distance:

@@ -456,6 +456,11 @@ def get_preprocessor(preprocessing: str, metadata_path: str = None):
     if metadata_path is None:
         metadata_path = str(get_metadata_path())
     
+    # Handle "none" string (in addition to None)
+    if preprocessing == "none" or preprocessing is None:
+        preprocess_fn = None
+        return preprocess_fn, None, None
+    
     if preprocessing == "unet":
         preprocess_fn = preprocess_general
         return preprocess_fn, None, None
@@ -489,10 +494,6 @@ def get_preprocessor(preprocessing: str, metadata_path: str = None):
 
     elif preprocessing in ["croma", "decur", "dofa", "prithvi", "satlas", "softcon", "galileo"]:
         preprocess_fn = preprocess_galileo()
-        return preprocess_fn, None, None
-
-    elif preprocessing is None:
-        preprocess_fn = None
         return preprocess_fn, None, None
     else:
         raise ValueError(f"Unsupported preprocessing: {preprocessing}")

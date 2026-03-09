@@ -41,7 +41,6 @@ class PixelWeightedCE(nn.Module):
         ignore_index: Optional[int] = None,
     ):
         super().__init__()
-        # normalize args to tuples
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size, kernel_size)
         if isinstance(sigma, (int, float)):
@@ -50,8 +49,6 @@ class PixelWeightedCE(nn.Module):
         self.kernel_size = kernel_size
         self.sigma = sigma
         self.scale = scale
-        # Register class_weights as a buffer so it moves with .to(device)
-        # If provided, store as float tensor via register_buffer; otherwise None
         if class_weights is not None:
             cw = class_weights.clone().detach().float()
             self.register_buffer("class_weights", cw)
@@ -60,7 +57,6 @@ class PixelWeightedCE(nn.Module):
         self.target_class = int(target_class)
         self.ignore_index = ignore_index
 
-        # Build the blur op (created once; runs on whatever device/tensor you pass)
         self.blur = K.filters.GaussianBlur2d(
             kernel_size=self.kernel_size, sigma=self.sigma, border_type="reflect"
         )
@@ -76,20 +72,17 @@ class PixelWeightedCE(nn.Module):
         assert masks.ndim == 3, "masks should be (N, H, W) with class indices"
         dtype = torch.float32
 
-        # Binary map for the chosen class
         E = masks == self.target_class
         if self.ignore_index is not None:
             E = E & (masks != self.ignore_index)
 
-        E = E.to(dtype=dtype).unsqueeze(1)  # (N,1,H,W)
-        # Kornia modules track device via input; no manual .to needed
-        weights = self.blur(E).squeeze(1)  # (N,H,W)
+        E = E.to(dtype=dtype).unsqueeze(1)
+        weights = self.blur(E).squeeze(1)
 
-        # If everything is ignored/absent, avoid all-zero weights
         if weights.sum() <= 0:
             weights = torch.zeros_like(weights)
 
-        return (weights * self.scale) + 1.0  # add 1 to ensure min weight is 1.0
+        return (weights * self.scale) + 1.0
 
     def forward(self, preds: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
         """
@@ -99,24 +92,20 @@ class PixelWeightedCE(nn.Module):
         assert preds.ndim == 4 and masks.ndim == 3, "preds (N,C,H,W), masks (N,H,W)"
         assert preds.shape[0] == masks.shape[0] and preds.shape[2:] == masks.shape[1:]
 
-        # Per-pixel CE, no reduction
         ce = F.cross_entropy(
             preds,
             masks,
             weight=self.class_weights,
             reduction="none",
             ignore_index=-100 if self.ignore_index is None else self.ignore_index,
-        )  # (N,H,W), float
+        )
 
-        # Build weights from blurred target-class mask
         with torch.no_grad():
-            w = self._make_weights(masks)  # (N,H,W)
+            w = self._make_weights(masks)
 
-            # Zero out weights on ignore pixels to be safe
             if self.ignore_index is not None:
                 w = torch.where(masks == self.ignore_index, torch.zeros_like(w), w)
 
-        # Weighted average: sum(w * ce) / sum(w)
         num = (w * ce).sum()
         den = w.sum().clamp_min(1e-8)
         return num / den
@@ -144,18 +133,15 @@ class logCoshDiceCE(nn.Module):
                  ignore_index=None, class_weights=None, 
                  mode="multiclass", classes=None):
         super().__init__()
-        # cross entropy
         ignore_value = -1000 if ignore_index is None else ignore_index
         self.ce_loss = nn.CrossEntropyLoss(
             ignore_index=ignore_value,
             weight=class_weights
         )
-        # logcosh dice
         self.dice_loss = logCoshDice(mode=mode, classes=classes, 
                               class_weights=class_weights,
                               ignore_index=ignore_index)
 
-        # weighting
         self.weight_ce = weight_ce
         self.weight_dice = weight_dice
 

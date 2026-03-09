@@ -49,5 +49,9 @@ predictions/
 # SAM2 eval outputs
 sam2_ftw/sam2_ftw_eval/*.csv
 
+# Mask2Former / detectron2 outputs
+output/
+coco_output/
+
 # Large conda env dump (use pyproject.toml instead)
 # env.yaml is kept for reference but not the canonical install method

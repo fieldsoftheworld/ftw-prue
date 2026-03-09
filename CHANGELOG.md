@@ -8,6 +8,7 @@ Summary of changes made to consolidate the multi-branch PhD student codebase int
 |--------|-------------|------------|
 | `prue-galileo-decode` | DECODE training/eval scripts, GFM embedding extraction (`GFMs/`) | Full merge |
 | `ftw_sam2v2` | SAM2 finetuning pipeline (`sam2_ftw/`) | Full merge |
+| `prue-m2f` | Mask2Former panoptic segmentation pipeline (vendored detectron2/mask2former/panopticapi, trainer, scripts, configs) | Full merge |
 | `clay-finetune-rebuttal` | Clay finetuning scripts, eval scripts, visualization | Full merge |
 | `prue-eval` | `tools/` (throughput benchmark, COCO converter, split search) | Cherry-picked `tools/` only |
 
@@ -16,7 +17,7 @@ Summary of changes made to consolidate the multi-branch PhD student codebase int
 | Branch | Reason |
 |--------|--------|
 | `prue-eval` (full) | 1080 files — includes vendored detectron2 + panopticapi (~143k lines). Only `tools/` cherry-picked. |
-| `prue-m2f` | 980 files — includes vendored detectron2 + Mask2Former source (~96k lines). Too large to vendor. |
+| `prue-m2f` | ~~Previously skipped~~ — merged with vendored detectron2/mask2former/panopticapi (modified, can't use submodules) |
 | `ftw_sam2` | Superseded by `ftw_sam2v2` |
 | `prue-sam` | Older SAM approach, superseded by SAM2 pipeline |
 
@@ -51,6 +52,45 @@ Ruff configured for **formatting only** (no linting). Excludes:
 - `pretrained/models/clay/src/` (vendored upstream code)
 
 Applied `ruff format .` to all 1st-party code (81 files).
+
+## Mask2Former Integration (prue-m2f)
+
+Merged the `prue-m2f` branch which adds a Mask2Former panoptic segmentation pipeline.
+
+### Vendored Code (modified — cannot use submodules)
+
+| Directory | Source | Why vendored |
+|-----------|--------|-------------|
+| `detectron2/` | [facebookresearch/detectron2](https://github.com/facebookresearch/detectron2) | Modified for multispectral (4/8-channel) satellite input |
+| `mask2former/` | [facebookresearch/Mask2Former](https://github.com/facebookresearch/Mask2Former) | Plugin with custom dataset mappers |
+| `panopticapi/` | [cocodataset/panopticapi](https://github.com/cocodataset/panopticapi) | Evaluation utilities |
+
+### 1st-Party Code Added
+
+| Directory/File | Purpose |
+|---------------|---------|
+| `trainer/` | Custom detectron2 trainer, evaluation (FTWEvaluator), hooks, postprocessing, visualization |
+| `scripts/train_panoptic.py` | Main training entry point with query expansion for transfer learning |
+| `scripts/setup.py` | Shared config/dataset registration |
+| `scripts/predict_geotiff_to_geojson.py` | GeoTIFF inference → GeoJSON output |
+| `scripts/predict_and_visualize.py` | Prediction + visualization |
+| `scripts/evaluate.py` | Evaluation script |
+| `configs/ftw/panoptic-segmentation/` | Mask2Former configs (R50, Swin-S) |
+| `create_env.sh` | Conda environment setup for M2F pipeline |
+
+### Ruff Exclusions
+
+Added `detectron2/`, `mask2former/`, `panopticapi/` to ruff `extend-exclude` — vendored code is not formatted.
+
+### Dependency Group
+
+Added `[m2f]` optional dep group: `pillow`, `pycocotools`, `fvcore`, `iopath`. Detectron2 must be installed separately: `pip install -e detectron2/`.
+
+### Removed
+
+| File | Reason |
+|------|--------|
+| `requirements.txt` | Redundant with `pyproject.toml` |
 
 ## Files Removed
 

@@ -1,6 +1,8 @@
 CUSTOM_CATEGORIES = [
     {"color": [100, 204, 25], "isthing": 1, "id": 1, "name": "ag_field"},
-    {"color": [153, 30, 76], "isthing": 0, "id": 2, "name": "background"}]
+    {"color": [153, 30, 76], "isthing": 0, "id": 2, "name": "background"},
+]
+
 
 def get_metadata():
     meta = {}
@@ -21,7 +23,7 @@ def get_metadata():
 
     # For things: map dataset ID 1 -> contiguous ID 0
     thing_dataset_id_to_contiguous_id[1] = 0  # ag_field: 1 -> 0
-    
+
     # For semantic segmentation:
     # Map dataset ID 1 -> contiguous ID 0 (ag_field)
     # Map dataset ID 2 -> contiguous ID 1 (background)

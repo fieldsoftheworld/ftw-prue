@@ -19,7 +19,8 @@ if project_root not in sys.path:
 try:
     from shapely.errors import ShapelyDeprecationWarning
     import warnings
-    warnings.filterwarnings('ignore', category=ShapelyDeprecationWarning)
+
+    warnings.filterwarnings("ignore", category=ShapelyDeprecationWarning)
 except ImportError:
     pass
 
@@ -37,6 +38,7 @@ from scripts.setup import shared_setup
 from trainer.custom_trainer import CustomTrainer
 from trainer.log_system import log_system_info, print_resource_limits
 
+
 def load_model_with_expanded_queries(cfg):
     """
     Builds a model and loads weights from a checkpoint, handling mismatches
@@ -46,27 +48,27 @@ def load_model_with_expanded_queries(cfg):
     """
     model = build_model(cfg)
     pretrained_weights_path = cfg.MODEL.WEIGHTS
-    
+
     if not pretrained_weights_path:
         print("No pre-trained weights specified. Returning randomly initialized model.")
         return model
 
     print(f"Loading weights from {pretrained_weights_path}")
-    
-    with open(pretrained_weights_path, 'rb') as f:
+
+    with open(pretrained_weights_path, "rb") as f:
         checkpoint = pickle.load(f)
 
     # Extract model state dict
-    if isinstance(checkpoint, dict) and 'model' in checkpoint:
-        state_dict = checkpoint['model']
+    if isinstance(checkpoint, dict) and "model" in checkpoint:
+        state_dict = checkpoint["model"]
     else:
         state_dict = checkpoint
-    
+
     model_state_dict = model.state_dict()
     modified_state_dict = {}
 
     # Get query expansion setting from config
-    query_expansion_enabled = getattr(cfg.MODEL.MASK_FORMER.QUERY_EXPANSION, 'ENABLED', False)
+    query_expansion_enabled = getattr(cfg.MODEL.MASK_FORMER.QUERY_EXPANSION, "ENABLED", False)
     print(f"\nQuery expansion is {'enabled' if query_expansion_enabled else 'disabled'}")
 
     for name, param in state_dict.items():
@@ -81,11 +83,11 @@ def load_model_with_expanded_queries(cfg):
         if param.shape == target_shape:
             modified_state_dict[name] = param
             continue
-            
+
         print(f"Mismatch for {name}: source {param.shape}, target {target_shape}. Handling...")
-        
+
         # Handle backbone input layer for different channel counts
-        if name == 'backbone.patch_embed.proj.weight':
+        if name == "backbone.patch_embed.proj.weight":
             # Adapts a 3-channel (RGB) pretrained weight to an 8-channel input
             if param.shape[1] == 3 and target_shape[1] == 8:
                 new_param = torch.zeros(target_shape, dtype=param.dtype, device=param.device)
@@ -107,7 +109,7 @@ def load_model_with_expanded_queries(cfg):
                 continue
 
         # Handle query expansion/contraction
-        if query_expansion_enabled and ('query_feat' in name or 'query_embed' in name):
+        if query_expansion_enabled and ("query_feat" in name or "query_embed" in name):
             old_size, dim = param.shape
             new_size = target_shape[0]
             # Safeguard: Skip expansion if query sizes already match
@@ -116,14 +118,14 @@ def load_model_with_expanded_queries(cfg):
                 modified_state_dict[name] = param
                 continue
             new_param = torch.zeros(target_shape, dtype=param.dtype, device=param.device)
-            new_param[:min(old_size, new_size)] = param[:min(old_size, new_size)]
+            new_param[: min(old_size, new_size)] = param[: min(old_size, new_size)]
             if new_size > old_size:
                 nn.init.normal_(new_param[old_size:], mean=0, std=0.01)
             modified_state_dict[name] = new_param
             print(f"  - Resized query from {old_size} to {new_size}.")
             continue
 
-        if query_expansion_enabled and name == 'sem_seg_head.predictor.query_feat.bias':
+        if query_expansion_enabled and name == "sem_seg_head.predictor.query_feat.bias":
             old_size = param.shape[0]
             new_size = target_shape[0]
             # Safeguard: Skip expansion if query sizes already match
@@ -137,10 +139,10 @@ def load_model_with_expanded_queries(cfg):
             print(f"  - Resized query bias from {old_size} to {new_size}.")
             continue
 
-        if 'class_embed' in name or 'criterion.empty_weight' in name:
+        if "class_embed" in name or "criterion.empty_weight" in name:
             print(f"  - Skipping {name} due to class count mismatch.")
             continue
-            
+
         print(f"  - Skipping {name} due to unhandled shape mismatch.")
 
     incompatible = model.load_state_dict(modified_state_dict, strict=False)
@@ -152,14 +154,15 @@ def load_model_with_expanded_queries(cfg):
         print(f"Unexpected keys: {len(incompatible.unexpected_keys)} keys")
         if len(incompatible.unexpected_keys) > 0:
             print(f"First few unexpected keys: {incompatible.unexpected_keys[:10]}")
-    
+
     return model
+
 
 def main(args):
     """Main training and evaluation logic."""
     print(f"Starting shared setup.")
     cfg = shared_setup(args)
-        
+
     if args.eval_only:
         model = CustomTrainer.build_model(cfg)
         DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(cfg.MODEL.WEIGHTS, resume=args.resume)
@@ -171,7 +174,7 @@ def main(args):
         return res
 
     # Check if query expansion is enabled in config
-    query_expansion_enabled = getattr(cfg.MODEL.MASK_FORMER.QUERY_EXPANSION, 'ENABLED', False)
+    query_expansion_enabled = getattr(cfg.MODEL.MASK_FORMER.QUERY_EXPANSION, "ENABLED", False)
     if query_expansion_enabled:
         model = load_model_with_expanded_queries(cfg)
         print(f"Model built with expanded queries. Resume: {args.resume}")
@@ -191,18 +194,19 @@ def main(args):
         trainer = CustomTrainer(cfg)
         print(f"Trainer built. Start iter: {trainer.start_iter}")
         trainer.resume_or_load(resume=args.resume)
-        
+
     log_system_info()
     print_resource_limits()
 
     return trainer.train()
+
 
 if __name__ == "__main__":
     parser = default_argument_parser()
     parser.add_argument("--coco-root", type=str, required=True, help="Root directory of the COCO dataset.")
     parser.add_argument("--weights", type=str, help="Path to weights to load for prediction/evaluation.")
     args = parser.parse_args()
-    
+
     print("Command Line Args:", args)
 
     launch(
@@ -213,4 +217,3 @@ if __name__ == "__main__":
         dist_url=args.dist_url,
         args=(args,),
     )
-

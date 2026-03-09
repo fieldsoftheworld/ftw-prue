@@ -22,7 +22,7 @@ import rasterio
 
 # Add project root to path if needed, but we are running from sam2_ftw usually
 # We need to add sam2 repo to path
-sam2_repo_path = Path("/projects/benq/atwollam/FTW-Bakeoff/specialized_field_models/sam2/sam2")
+sam2_repo_path = Path(os.environ.get("SAM2_REPO_PATH", "."))
 sys.path.insert(0, str(sam2_repo_path))
 
 from build_sam_v2 import build_sam2_video_predictor
@@ -31,9 +31,9 @@ from sam2.modeling.backbones.utils import PatchEmbed
 # Local imports
 from dataset_v2 import FTW
 
-DATA_ROOT = "/projects/benq/ftw-data/data/ftw"
-CHECKPOINT_PATH = "/projects/benq/atwollam/FTW-Bakeoff/specialized_field_models/sam2/sam2/checkpoints/sam2.1_hiera_small.pt"
-MODEL_CFG = "configs/sam2.1/sam2.1_hiera_s.yaml"
+DATA_ROOT = os.environ.get("FTW_DATA_ROOT", "./data/ftw")
+CHECKPOINT_PATH = os.environ.get("SAM2_CHECKPOINT_PATH", "checkpoints/sam2.1_hiera_small.pt")
+MODEL_CFG = os.environ.get("SAM2_MODEL_CFG", "configs/sam2.1/sam2.1_hiera_s.yaml")
 
 OUTPUT_DIR = "sam2_ftw_v2"
 os.makedirs(OUTPUT_DIR, exist_ok=True)

@@ -121,7 +121,7 @@ data:
       - sweden
       - vietnam
   dict_kwargs:
-    root: /projects/benq/ftw-data/data/ftw
+    root: ./data/ftw
     metadata_path: ./configs/metadata.yaml
     load_boundaries: true
     input_type: images_noaug                                       # "images" or "features" or "images_noaug"

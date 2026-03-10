@@ -32,9 +32,9 @@ from ftw_tools.settings import ALL_COUNTRIES
 
 # Import registry-based segmenters (triggers registration via __init__.py)
 try:
-    from models.registry import create_segmenter, available_models
+    from prue_eval.models.registry import create_segmenter, available_models
     # Trigger adapter registration by importing models module
-    import models  # noqa: F401
+    import prue_eval.models  # noqa: F401
     REGISTRY_AVAILABLE = True
 except ImportError as e:
     REGISTRY_AVAILABLE = False

@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, Optional, Literal
 
 import torch
 import torchvision.transforms.v2 as T
+import ultralytics.engine.results  # noqa: F401
 
 from ...intermediate_formats import InstanceOutput
 from ...converters import convert_delineate_anything_output

@@ -1,10 +1,4 @@
 import torch
-import torch.nn as nn
-from ftw_tools.models.segmentor import SegmentationHead
-from .models.clay.finetune.segment.factory import SegmentEncoder as ClayEncoder
-from .models.TerraFM.terrafm_segment import TerraFMEncoderWrapper as TerraFMEncoder
-from .models.dinov3.dinov3_segmentor import SegmentEncoder as DinoV3Encoder
-from .models.terramind.terramind import SegmentEncoder as TeraMindEncoder
 from .path_config import get_model_path
 
 
@@ -26,6 +20,8 @@ def get_encoder(model_name: str, device: torch.device, weights_path: str = None)
         weights_path = str(get_model_path(model_name))
 
     if model_name == "clay":
+        from .models.clay.finetune.segment.factory import SegmentEncoder as ClayEncoder
+
         weights = weights_path
         encoder = ClayEncoder(
             mask_ratio=0.0,
@@ -43,18 +39,24 @@ def get_encoder(model_name: str, device: torch.device, weights_path: str = None)
         return encoder
 
     elif model_name == "terrafm":
+        from .models.TerraFM.terrafm_segment import TerraFMEncoderWrapper as TerraFMEncoder
+
         weights = weights_path
         encoder = TerraFMEncoder(ckpt_path=weights, in_chans=4, device=device, freeze_encoder="all").to(device)
         encoder.eval()
         return encoder
 
     elif model_name == "dinov3":
+        from .models.dinov3.dinov3_segmentor import SegmentEncoder as DinoV3Encoder
+
         weights = weights_path
         encoder = DinoV3Encoder(ckpt_path=weights).to(device)
         encoder.eval()
         return encoder
 
     elif model_name == "terramind":
+        from .models.terramind.terramind import SegmentEncoder as TeraMindEncoder
+
         encoder = TeraMindEncoder().to(device)
         encoder.eval()
         return encoder

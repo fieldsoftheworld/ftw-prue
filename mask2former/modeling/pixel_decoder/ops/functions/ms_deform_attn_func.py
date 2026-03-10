@@ -13,6 +13,10 @@ from __future__ import absolute_import
 from __future__ import print_function
 from __future__ import division
 
+import importlib
+import sys
+from pathlib import Path
+
 import torch
 import torch.nn.functional as F
 from torch.autograd import Function
@@ -21,12 +25,18 @@ from torch.autograd.function import once_differentiable
 try:
     import MultiScaleDeformableAttention as MSDA
 except ModuleNotFoundError as e:
-    info_string = (
-        "\n\nPlease compile MultiScaleDeformableAttention CUDA op with the following commands:\n"
-        "\t`cd mask2former/modeling/pixel_decoder/ops`\n"
-        "\t`sh make.sh`\n"
-    )
-    raise ModuleNotFoundError(info_string)
+    ops_dir = Path(__file__).resolve().parents[1]
+    if str(ops_dir) not in sys.path:
+        sys.path.insert(0, str(ops_dir))
+    try:
+        MSDA = importlib.import_module("MultiScaleDeformableAttention")
+    except ModuleNotFoundError:
+        info_string = (
+            "\n\nPlease compile MultiScaleDeformableAttention CUDA op with the following commands:\n"
+            "\t`cd mask2former/modeling/pixel_decoder/ops`\n"
+            "\t`sh make.sh`\n"
+        )
+        raise ModuleNotFoundError(info_string) from e
 
 
 class MSDeformAttnFunction(Function):

@@ -17,10 +17,9 @@ class TestFtwTools:
         assert len(TEMPORAL_OPTIONS) > 0
 
     def test_import_cli(self):
-        pytest.importorskip("wget")
-        from ftw_tools.cli import cli
+        from ftw_tools.cli import ftw
 
-        assert callable(cli)
+        assert callable(ftw)
 
     def test_import_segmentor(self):
         from ftw_tools.models.segmentor import SegmentationHead
@@ -39,18 +38,59 @@ class TestFtwTools:
         assert callable(get_object_level_metrics)
 
     def test_import_baseline_inference(self):
-        try:
-            from ftw_tools.models.baseline_inference import predict
-        except (ImportError, ModuleNotFoundError) as e:
-            pytest.skip(f"baseline_inference not importable (clay dep): {e}")
+        from ftw_tools.models.baseline_inference import predict
+
         assert callable(predict)
 
     def test_import_baseline_eval(self):
-        try:
-            from ftw_tools.models.baseline_eval import evaluate
-        except (ImportError, ModuleNotFoundError) as e:
-            pytest.skip(f"baseline_eval not importable (clay dep): {e}")
+        from ftw_tools.models.baseline_eval import evaluate
+
         assert callable(evaluate)
+
+    def test_import_trainers(self):
+        from ftw_tools.torchgeo.trainers import CustomSemanticSegmentationTask
+
+        assert hasattr(CustomSemanticSegmentationTask, "training_step")
+
+    def test_import_datamodules(self):
+        from ftw_tools.torchgeo.datamodules import preprocess
+
+        assert callable(preprocess)
+
+    def test_import_datasets(self):
+        from ftw_tools.torchgeo.datasets import FTW
+
+        assert callable(FTW)
+
+    def test_import_utils(self):
+        from ftw_tools.utils import validate_checksums, compute_md5
+
+        assert callable(validate_checksums)
+        assert callable(compute_md5)
+
+    def test_import_model_utils(self):
+        from pretrained.models.model_utils import get_preprocessor, prepare_clay_sample, prepare_general_sample
+
+        assert callable(get_preprocessor)
+        assert callable(prepare_clay_sample)
+        assert callable(prepare_general_sample)
+
+    def test_import_download_modules(self):
+        import ftw_tools.download.download_img
+        import ftw_tools.download.download_ftw
+        import ftw_tools.download.unpack
+
+        assert hasattr(ftw_tools.download.download_img, "__file__")
+
+    def test_import_postprocess_polygonize(self):
+        import ftw_tools.postprocess.polygonize
+
+        assert hasattr(ftw_tools.postprocess.polygonize, "__file__")
+
+    def test_import_postprocess_lulc_filtering(self):
+        import ftw_tools.postprocess.lulc_filtering
+
+        assert hasattr(ftw_tools.postprocess.lulc_filtering, "__file__")
 
 
 # ── Pretrained encoders ───────────────────────────────────────────────────
@@ -88,10 +128,8 @@ class TestPretrainedImports:
         assert hasattr(SegmentEncoder, "forward")
 
     def test_import_factory(self):
-        try:
-            from pretrained.pretrained_factory import get_encoder
-        except (ImportError, ModuleNotFoundError) as e:
-            pytest.skip(f"pretrained_factory not importable (clay dep): {e}")
+        from pretrained.pretrained_factory import get_encoder
+
         assert callable(get_encoder)
 
 
@@ -258,12 +296,36 @@ class TestPrueEvalImports:
         assert fns >= 0
         assert tps + fns == 2  # 2 GT objects
 
+    def test_import_decode_adapter(self):
+        from prue_eval.models.decode.segmenter import create_decode_segmenter
+
+        assert callable(create_decode_segmenter)
+
+    def test_import_da_adapter(self):
+        pytest.importorskip("ftw.models.delineate_anything")
+        from prue_eval.models.delineate_anything.segmenter import create_delineate_anything_segmenter
+
+        assert callable(create_delineate_anything_segmenter)
+
+    def test_import_sam_adapter(self):
+        pytest.importorskip("segment_anything")
+        from prue_eval.models.sam.segmenter import create_sam_segmenter
+
+        assert callable(create_sam_segmenter)
+
+    def test_import_d2_adapter(self):
+        pytest.importorskip("detectron2.config")
+        from prue_eval.models.d2 import create_mask2former_segmenter
+
+        assert callable(create_mask2former_segmenter)
+
 
 # ── Trainer (lazy imports) ─────────────────────────────────────────────────
 
 
 class TestTrainerImports:
     def test_import_lr_schedulers(self):
+        pytest.importorskip("detectron2.solver")
         from trainer import StepDecayLRScheduler, CosineWarmupLRScheduler
 
         assert callable(StepDecayLRScheduler)
@@ -273,6 +335,21 @@ class TestTrainerImports:
         from trainer.io_utils import read_geotiff
 
         assert callable(read_geotiff)
+
+    def test_import_postprocessing(self):
+        import trainer.postprocessing
+        import trainer.postprocessing_pixel
+
+        assert hasattr(trainer.postprocessing, "__file__")
+        assert hasattr(trainer.postprocessing_pixel, "__file__")
+
+    def test_import_trainer_detectron2_modules(self):
+        pytest.importorskip("detectron2.engine")
+        import trainer.prediction
+        import trainer.custom_trainer
+        import trainer.evaluation
+
+        assert hasattr(trainer.prediction, "__file__")
 
 
 # ── Mask2Former (requires compiled CUDA ops) ──────────────────────────────
@@ -302,4 +379,4 @@ class TestSAM2Imports:
     def test_import_sam2(self):
         import sam2
 
-        assert hasattr(sam2, "__version__")
+        assert hasattr(sam2, "__file__")

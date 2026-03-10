@@ -13,6 +13,13 @@ from torch.utils.data import DataLoader, Subset
 from ftw_tools.torchgeo.datasets import FTW
 
 
+# Backwards-compatible preprocessing transform used by inference utilities.
+preprocess = K.AugmentationSequential(
+    K.Normalize(mean=torch.zeros(8), std=torch.full((8,), 3000.0)),
+    data_keys=None,
+)
+
+
 def randomChannelShuffle(x):
     if torch.rand(1) < 0.5:
         return x

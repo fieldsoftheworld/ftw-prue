@@ -13,10 +13,6 @@ from pathlib import Path
 from box import Box
 import math
 
-from .clay.finetune.segment.factory import SegmentEncoder as ClayEncoder
-from .TerraFM.terrafm_segment import TerraFMEncoderWrapper as TerraFMEncoder
-from .dinov3.dinov3_segmentor import SegmentEncoder as DinoV3Encoder
-from .terramind.terramind import SegmentEncoder as TeraMindEncoder
 from ..path_config import get_model_path, get_data_root, get_metadata_path
 
 
@@ -305,6 +301,8 @@ def get_model_and_preprocess(
         weights_path = str(get_model_path(model_name))
 
     if model_name == "clay":
+        from .clay.finetune.segment.factory import SegmentEncoder as ClayEncoder
+
         weights = weights_path
         metadata = Box(yaml.safe_load(open(metadata_path, "r")))
         platform = "sentinel-2-l2a"
@@ -334,6 +332,8 @@ def get_model_and_preprocess(
         return encoder, preprocess_fn, gsd, waves
 
     elif model_name == "terrafm":
+        from .TerraFM.terrafm_segment import TerraFMEncoderWrapper as TerraFMEncoder
+
         weights = weights_path
         preprocess_fn = preprocess_general
         encoder = TerraFMEncoder(ckpt_path=weights, in_chans=4, device=device, freeze_encoder="all").to(device)
@@ -341,12 +341,16 @@ def get_model_and_preprocess(
         return encoder, preprocess_fn, None, None
 
     elif model_name == "terramind":
+        from .terramind.terramind import SegmentEncoder as TeraMindEncoder
+
         encoder = TeraMindEncoder().to(device)
         encoder.eval()
         preprocess_fn = preprocess_general
         return encoder, preprocess_fn, None, None
 
     elif model_name == "dinov3":
+        from .dinov3.dinov3_segmentor import SegmentEncoder as DinoV3Encoder
+
         weights = weights_path
         preprocess_fn = preprocess_dinov3()
         encoder = DinoV3Encoder(ckpt_path=weights).to(device)

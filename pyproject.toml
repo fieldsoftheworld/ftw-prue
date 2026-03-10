@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "PRUE: A Practical Recipe for Field Boundary Segmentation at Scale (CVPR 2025)"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "torch>=2.1",
     "torchvision>=0.16",
@@ -30,6 +30,22 @@ dependencies = [
     "opencv-python>=4.8",
     "kornia>=0.7",
     "python-box>=7.0",
+    "wget>=3.2",
+    "pandas>=2.0",
+    "xarray>=2023.1",
+    "rioxarray>=0.15",
+    "dask>=2023.1",
+    "odc-stac>=0.3",
+    "planetary-computer>=1.0",
+    "pystac>=1.8",
+    "pystac-client>=0.7",
+    "tenacity>=8.2",
+    "fiona>=1.9",
+    "affine>=2.4",
+    "fiboa-cli>=0.3,<0.20",
+    "psutil>=5.9",
+    "tabulate>=0.9",
+    "hydra-core>=1.3",
 ]
 
 [project.optional-dependencies]
@@ -41,7 +57,6 @@ gfm = [
 ]
 sam2 = [
     "sam2>=1.0",
-    "hydra-core>=1.3",
 ]
 m2f = [
     # Mask2Former panoptic segmentation
@@ -58,9 +73,9 @@ eval = [
     "pycocotools>=2.0",
 ]
 da = [
-    # DelineateAnything adapter (requires Python <3.13 due to ftw-tools constraint)
-    "ftw-tools>=1.2.0",
-    "ultralytics>=8.0",
+    # DelineateAnything adapter (requires Python >=3.11,<3.13 due to ftw-tools constraint)
+    "ftw-tools>=1.4.3",
+    "ultralytics>=8.3",
 ]
 decode = [
     # DECODE (FracTAL ResUNet) has no extra deps beyond core
@@ -70,10 +85,10 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.8",
 ]
-all = ["ftw-prue[gfm,sam2,m2f,eval,dev]"]
+all = ["ftw-prue[gfm,sam2,m2f,eval,da,decode,dev]"]
 
 [project.scripts]
-ftw = "ftw_tools.cli:cli"
+ftw = "ftw_tools.cli:ftw"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

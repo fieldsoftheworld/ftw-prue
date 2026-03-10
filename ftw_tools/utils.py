@@ -1,22 +1,19 @@
+from __future__ import annotations
+
 import hashlib
 import logging
 import os
-from typing import Union
+from typing import Union, TYPE_CHECKING
 import click
-import pandas as pd
-import scipy
-import scipy.stats
-import xarray as xr
-import rasterio
+
+if TYPE_CHECKING:
+    import pandas as pd
 import numpy as np
-import torch
 from pathlib import Path
 import json
 from datetime import datetime, timedelta
 from functools import lru_cache
 import math
-from box import Box
-import yaml
 
 # Harvest day raster paths from https://github.com/ucg-uv/research_products/tree/main
 SUMMER_START_RASTER_PATH = "assets/global_crop_calendar/sc_sos_3x3_v2_cog.tiff"
@@ -76,6 +73,8 @@ def harvest_to_datetime(harvest_day: int, year: int) -> pd.Timestamp:
     Returns:
         pd.Timestamp: Corresponding datetime object.
     """
+    import pandas as pd
+
     return pd.to_datetime(f"{year}-{harvest_day}", format="%Y-%j")
 
 
@@ -94,6 +93,9 @@ def get_harvest_integer_from_bbox(
     Returns:
         list: start and end harvest integer (day of the year).
     """
+
+    import scipy.stats
+    import xarray as xr
 
     start_harvest_dset = xr.open_dataset(start_year_raster_path, engine="rasterio")
     end_harvest_dset = xr.open_dataset(end_year_raster_path, engine="rasterio")

@@ -30,7 +30,7 @@ Download the FTW dataset per the [ftw-baselines instructions](https://github.com
 
 ## Repo layout
 
-```
+```bash
 ftw_tools/       Core package — datasets, trainers, losses, metrics, postprocessing
 pretrained/      GFM encoder wrappers + feature extraction
 decode/          DECODE (FracTAL ResUNet) multi-task model

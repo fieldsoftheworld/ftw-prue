@@ -171,3 +171,7 @@ def run(
         dst.write(output_mask, 1)
 
     print(f"Finished inference and saved output to {out} in {time.time() - tic:.2f}s")
+
+
+def predict(*args, **kwargs):
+    return run(*args, **kwargs)

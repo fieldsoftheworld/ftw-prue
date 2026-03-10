@@ -468,3 +468,7 @@ def test(
                 f"{round(c_apm, 3)},"
                 f"{round(c_apl, 3)}\n"
             )
+
+
+def evaluate(*args, **kwargs):
+    return test(*args, **kwargs)

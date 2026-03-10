@@ -164,14 +164,10 @@ echo "Set FORCE_CUDA=1 for CUDA extension builds"
 echo "Installing build tools..."
 conda install -y ninja cmake
 
-# Install dependencies from requirements.txt
-echo "Installing dependencies from requirements.txt..."
-REQUIREMENTS_FILE="${PROJECT_DIR}/requirements.txt"
-if [ ! -f "${REQUIREMENTS_FILE}" ]; then
-    echo "Error: requirements.txt not found at ${REQUIREMENTS_FILE}"
-    exit 1
-fi
-pip install -r "${REQUIREMENTS_FILE}"
+# Install the project and all optional dependency groups from pyproject.toml
+echo "Installing ftw-prue and optional dependencies from pyproject.toml..."
+cd "${PROJECT_DIR}"
+pip install -e ".[all]"
 
 # Install opencv
 echo "Installing OpenCV..."

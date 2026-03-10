@@ -17,6 +17,7 @@ cd ftw-prue
 pip install -e .               # core: training + eval
 pip install -e ".[gfm]"       # + foundation model encoders
 pip install -e ".[sam2]"      # + SAM2 finetuning
+pip install -e ".[eval]"      # + PRUE evaluation framework
 pip install -e ".[dev]"       # + pytest, ruff
 pip install -e ".[all]"       # everything
 
@@ -29,7 +30,7 @@ Download the FTW dataset per the [ftw-baselines instructions](https://github.com
 
 ## Repo layout
 
-```
+```bash
 ftw_tools/       Core package — datasets, trainers, losses, metrics, postprocessing
 pretrained/      GFM encoder wrappers + feature extraction
 decode/          DECODE (FracTAL ResUNet) multi-task model
@@ -37,8 +38,9 @@ sam2_ftw/        SAM2 finetuning pipeline
 detectron2/      Vendored detectron2 (modified: multi-band input, GeoTIFF support, panoptic eval)
 mask2former/     Vendored Mask2Former (modified for multispectral input)
 panopticapi/     Vendored panoptic evaluation utilities
+prue_eval/       Unified evaluation framework (model registry, intermediate formats, metrics)
 trainer/         Mask2Former training infrastructure (custom trainer, eval, hooks)
-scripts/         Mask2Former training/inference entry points
+scripts/         Training/inference/evaluation entry points
 configs/         Training configs (2-class, 3-class, ViT, Mask2Former panoptic)
 GFMs/            Embedding extraction scripts (CROMA, DeCUR, DOFA, …)
 tools/           Throughput benchmark, COCO converter, split search
@@ -51,7 +53,7 @@ tests/           Unit tests
 
 **GFM encoders** — Clay, TerraFM, DINOv3, TerraMind, CROMA, DeCUR, DOFA, Prithvi, SatLAS, SoftCon, Galileo
 
-**Custom** — DECODE (FracTAL ResUNet multi-task), SAM2 (temporal propagation), Mask2Former (panoptic segmentation)
+**Custom** — DECODE (FracTAL ResUNet multi-task), SAM/SAM2 (instance segmentation), Mask2Former (panoptic segmentation), DelineateAnything (YOLO)
 
 ## Training
 
@@ -98,6 +100,10 @@ python -m ftw_tools.cli model test \
   --dir ./data/ftw \
   --gpu 0 \
   --out results.json
+
+# PRUE unified evaluation (supports SAM, DECODE, DelineateAnything, Mask2Former)
+python scripts/run_model_inference.py --model decode --weights /path/to/ckpt --data-dir ./data/ftw
+python scripts/evaluate_by_country.py --detections results.pkl --data-dir ./data/ftw
 ```
 
 ## Feature extraction

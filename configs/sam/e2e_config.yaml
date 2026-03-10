@@ -1,0 +1,51 @@
+data:
+        data_dir: '/data/ftw'
+        train_countries: ["austria", "corsica", "finland", "kenya", "portugal", "south_africa", "belgium", "croatia", "france", "lithuania", "rwanda", "spain", "brazil", "denmark", "germany", "luxembourg", "slovakia", "sweden", "cambodia", "estonia", "india", "netherlands", "slovenia", "vietnam"]
+        val_countries: ["austria", "corsica", "finland", "kenya", "portugal", "south_africa", "belgium", "croatia", "france", "lithuania", "rwanda", "spain", "brazil", "denmark", "germany", "luxembourg", "slovakia", "sweden", "cambodia", "estonia", "india", "netherlands", "slovenia", "vietnam"]
+        test_countries: ['slovenia', 'kenya'] # ["austria", "corsica", "finland", "kenya", "portugal", "south_africa", "belgium", "croatia", "france", "lithuania", "rwanda", "spain", "brazil", "denmark", "germany", "luxembourg", "slovakia", "sweden", "cambodia", "estonia", "india", "netherlands", "slovenia", "vietnam"]
+        load_boundaries: 'instance'
+        temporal_options: 'stacked'
+        batch_size: 8
+        use_rgb: False
+        train_worker_num: 12
+        val_worker_num: 8
+        test_worker_num: 1
+sam_model:
+        model_ckpt: "/weights/sam_final_allinp_re_ed_e2e_30.pkl" # Update to where you have the weights saved
+        in_chans: 8
+        adapt_inp: True
+        change_chan_num: False
+img_proj:
+        use_img_proj: False
+        img_ckpt: False
+        img_model_params: [8, 3, 64, 4]
+emb_cond:
+        use_emb_cond: False
+        emb_ckpt: False
+        emb_tokens: 1
+trainer:
+        exp_name: 'e2e'
+        epochs: 1
+        save_every: False
+        accumulation_steps: 16
+        nsel: 48
+        opt_model: True
+        train_mask_dec: True
+        train_prompt_enc: False
+        train_image_enc: True
+        lr: 1e-4
+        weight_decay: 4e-5
+eval:
+        exp_name: 'e2e'
+        points_per_side: 32
+        points_per_batch: 64
+        iou_thresh: 0.88
+        stability_thresh: 0.95
+        box_nms_thresh: 0.5 #0.7 #small: less overlap, large: more masks
+        crop_n_layers: 1
+        crop_nms_thresh: 0.7
+        crop_overlap_ratio: 0.34 # 514.5/1500 ~~ default:512/1500
+        min_mask_region_area: 0 # int > 0 -> remove disconnected areas/holes in masks w/ < area
+        print_metrics: True
+        save_metrics: True
+        sort_countries: True

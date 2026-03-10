@@ -22,7 +22,7 @@ pip install -e ".[dev]"       # + pytest, ruff
 pip install -e ".[all]"       # everything
 
 # Mask2Former (requires vendored detectron2)
-pip install -e detectron2/ --no-build-isolation
+pip install -e vendor/detectron2/ --no-build-isolation
 pip install -e ".[m2f]"
 ```
 
@@ -30,21 +30,17 @@ Download the FTW dataset per the [ftw-baselines instructions](https://github.com
 
 ## Repo layout
 
-```bash
-ftw_tools/       Core package — datasets, trainers, losses, metrics, postprocessing
-pretrained/      GFM encoder wrappers + feature extraction
-decode/          DECODE (FracTAL ResUNet) multi-task model
-sam2_ftw/        SAM2 finetuning pipeline
-detectron2/      Vendored detectron2 (modified: multi-band input, GeoTIFF support, panoptic eval)
-mask2former/     Vendored Mask2Former (modified for multispectral input)
-panopticapi/     Vendored panoptic evaluation utilities
-prue_eval/       Unified evaluation framework (model registry, intermediate formats, metrics)
-trainer/         Mask2Former training infrastructure (custom trainer, eval, hooks)
-scripts/         Training/inference/evaluation entry points
-configs/         Training configs (2-class, 3-class, ViT, Mask2Former panoptic)
-GFMs/            Embedding extraction scripts (CROMA, DeCUR, DOFA, …)
-tools/           Throughput benchmark, COCO converter, split search
-tests/           Unit tests
+```text
+ftw_tools/         Core — datasets, trainers, losses, metrics, postprocessing
+pretrained/        GFM encoder wrappers + feature extraction
+prue_eval/         Unified evaluation framework (registry, intermediate formats, metrics)
+decode/            DECODE (FracTAL ResUNet) multi-task model
+trainer/           Mask2Former training infrastructure
+sam2_ftw/          SAM2 finetuning pipeline
+vendor/            Vendored third-party (detectron2, mask2former, panopticapi)
+scripts/           Training, inference, evaluation, embedding extraction
+configs/           Model and training configs
+tests/             Unit tests
 ```
 
 ## Models
@@ -59,16 +55,16 @@ tests/           Unit tests
 
 ```bash
 # GFM encoder (from images)
-./train_gfm.sh clay images_noaug
+scripts/train_gfm.sh clay images_noaug
 
 # GFM encoder (from precomputed features)
-./train_gfm.sh terrafm features /path/to/features
+scripts/train_gfm.sh terrafm features /path/to/features
 
 # Clay finetuning (encoder + decoder end-to-end)
-./train_clay.sh a online
+scripts/train_clay.sh a online
 
 # DECODE
-./train_gfm.sh decode images_noaug
+scripts/train_gfm.sh decode images_noaug
 
 # Mask2Former panoptic segmentation
 python scripts/train_panoptic.py \
@@ -83,13 +79,13 @@ python -m ftw_tools.cli model fit --config configs/release/3_class/full-ftw.yaml
 
 ```bash
 # All GFM models
-./eval_gfm.sh all main features /path/to/features
+scripts/eval_gfm.sh all main features /path/to/features
 
 # Single model
-./eval_gfm.sh clay main images_noaug
+scripts/eval_gfm.sh clay main images_noaug
 
 # Clay finetuned
-./eval_clay.sh main
+scripts/eval_clay.sh main
 
 # Lightning CLI
 python -m ftw_tools.cli model test \
@@ -101,7 +97,7 @@ python -m ftw_tools.cli model test \
   --gpu 0 \
   --out results.json
 
-# PRUE unified evaluation (supports SAM, DECODE, DelineateAnything, Mask2Former)
+# PRUE unified evaluation (SAM, DECODE, DelineateAnything, Mask2Former)
 python scripts/run_model_inference.py --model decode --weights /path/to/ckpt --data-dir ./data/ftw
 python scripts/evaluate_by_country.py --detections results.pkl --data-dir ./data/ftw
 ```
@@ -114,7 +110,7 @@ Precompute embeddings for the full dataset:
 python -m pretrained.models.compute_feats --model clay --batch_size 32
 ```
 
-Per-model scripts in [`GFMs/`](GFMs/).
+Per-model scripts in [`scripts/embeddings/`](scripts/embeddings/).
 
 ## Environment variables
 
@@ -122,10 +118,10 @@ Per-model scripts in [`GFMs/`](GFMs/).
 |----------|---------|---------|
 | `FTW_DATA_DIR` / `FTW_DATA_ROOT` | `./data/ftw` | Dataset root |
 | `GFM_CKPT_DIR` | `./gfm_ckpts/encoders` | Encoder checkpoints |
-| `CLAY_CKPT_PATH` | *(required)* | Clay checkpoint for `eval_clay.sh` |
+| `CLAY_CKPT_PATH` | *(required)* | Clay checkpoint for `scripts/eval_clay.sh` |
 | `SAM2_CHECKPOINT_PATH` | *(required)* | SAM2 base checkpoint |
 | `SAM2_MODEL_CFG` | `sam2_hiera_s.yaml` | SAM2 model config |
-| `FTW_GEOPARQUET_ROOT` | *(required)* | Geoparquet root for `tools/ftw_to_coco.py` |
+| `FTW_GEOPARQUET_ROOT` | *(required)* | Geoparquet root for `scripts/tools/ftw_to_coco.py` |
 
 ## Testing
 

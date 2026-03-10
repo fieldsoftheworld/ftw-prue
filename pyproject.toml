@@ -60,8 +60,8 @@ sam2 = [
 ]
 m2f = [
     # Mask2Former panoptic segmentation
-    # Both detectron2/ and mask2former/ are vendored with modifications
-    # Install detectron2 locally: pip install -e detectron2/ --no-build-isolation
+    # Both vendor/detectron2/ and vendor/mask2former/ are vendored with modifications
+    # Install detectron2 locally: pip install -e vendor/detectron2/ --no-build-isolation
     "pillow>=9.0",
     "pycocotools>=2.0",
     "fvcore>=0.1.5",
@@ -95,7 +95,8 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["ftw_tools*", "pretrained*", "decode*", "trainer*", "prue_eval*"]
+where = [".", "vendor"]
+include = ["ftw_tools*", "pretrained*", "decode*", "trainer*", "prue_eval*", "mask2former*"]
 
 # --- Ruff: formatting only, no linting ---
 [tool.ruff]
@@ -106,9 +107,7 @@ extend-exclude = [
     "pretrained/models/galileo_benchmark/galileo",
     "pretrained/models/clay/src",
     "pretrained/models/clay/configs",
-    "detectron2",
-    "mask2former",
-    "panopticapi",
+    "vendor",
     "prue_eval/models/sam",
     "prue_eval/models/delineate_anything",
 ]

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-AGGREGATE_SCRIPT="./aggregate.py"
+AGGREGATE_SCRIPT="scripts/aggregate.py"
 RESULT_DIR_BASE="./results"
 
 export MODEL_FILTER=${1:-all}

@@ -54,6 +54,8 @@ output/
 coco_output/
 
 # Large conda env dump (use pyproject.toml instead)
-# env.yaml is kept for reference but not the canonical install method
 .claude/
 .venv*
+
+# Compiled extensions (built locally, not committed)
+*.so

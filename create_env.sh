@@ -176,7 +176,7 @@ conda install -y -c conda-forge opencv
 # Install Detectron2 from local directory
 # Use --no-build-isolation so detectron2's setup.py can access the installed torch
 echo "Installing Detectron2 from local directory..."
-DETECTRON2_DIR="${PROJECT_DIR}/detectron2"
+DETECTRON2_DIR="${PROJECT_DIR}/vendor/detectron2"
 if [ ! -d "${DETECTRON2_DIR}" ]; then
     echo "Error: detectron2 directory not found at ${DETECTRON2_DIR}"
     exit 1
@@ -197,7 +197,7 @@ python -c "import detectron2.utils.comm; print('Detectron2 utils.comm imported s
 
 # Install panopticapi from local directory
 echo "Installing panopticapi from local directory..."
-PANOPTICAPI_DIR="${PROJECT_DIR}/panopticapi"
+PANOPTICAPI_DIR="${PROJECT_DIR}/vendor/panopticapi"
 if [ ! -d "${PANOPTICAPI_DIR}" ]; then
     echo "Error: panopticapi directory not found at ${PANOPTICAPI_DIR}"
     exit 1
@@ -207,13 +207,13 @@ pip install -e .
 
 # Build CLUSTEN custom CUDA kernel
 echo "Building CLUSTEN custom CUDA kernel..."
-CLUSTEN_DIR="${PROJECT_DIR}/mask2former/modeling/clusten/src"
+CLUSTEN_DIR="${PROJECT_DIR}/vendor/mask2former/modeling/clusten/src"
 if [ -d "${CLUSTEN_DIR}" ]; then
     cd "${CLUSTEN_DIR}"
     python setup.py build_ext --inplace
     
     # Create a setup_path.py file in the clusten directory to help with imports
-    cd "${PROJECT_DIR}/mask2former/modeling/clusten"
+    cd "${PROJECT_DIR}/vendor/mask2former/modeling/clusten"
     cat > setup_path.py << 'EOF'
 import os
 import sys
@@ -230,7 +230,7 @@ fi
 
 # Build Mask2Former pixel decoder operations (MSDeformAttn)
 echo "Building Mask2Former pixel decoder operations (TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST})..."
-PIXEL_DECODER_DIR="${PROJECT_DIR}/mask2former/modeling/pixel_decoder/ops"
+PIXEL_DECODER_DIR="${PROJECT_DIR}/vendor/mask2former/modeling/pixel_decoder/ops"
 if [ -d "${PIXEL_DECODER_DIR}" ]; then
     cd "${PIXEL_DECODER_DIR}"
     python setup.py build install

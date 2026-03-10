@@ -3,7 +3,7 @@
 # =========================================
 # BASIC SETUP
 # =========================================
-AGGREGATE_SCRIPT="./aggregate.py"
+AGGREGATE_SCRIPT="scripts/aggregate.py"
 RESULT_DIR_BASE="./results"
 
 MODEL_NAME="clay-finetuned"

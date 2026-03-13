@@ -28,7 +28,10 @@ uv pip install -e vendor/detectron2/ --no-build-isolation
 uv pip install -e ".[m2f]"
 ```
 
-Download the FTW dataset per the [ftw-baselines instructions](https://github.com/fieldsoftheworld/ftw-baselines) and place it at `./data/ftw` (or set `FTW_DATA_DIR`).
+Download the FTW dataset per the [ftw-baselines instructions](https://github.com/fieldsoftheworld/ftw-baselines) and place it at `./data/ftw` (or set `FTW_DATA_DIR`). 
+
+If you prefer not to compute embeddings locally, you can download [precomputed FTW GFM embeddings](https://source.coop/mvrl/ftw-inference-gfm/precomputed_feats) from Source Cooperative.
+
 
 ## Repo layout
 

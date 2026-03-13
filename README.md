@@ -10,20 +10,22 @@ This repo benchmarks field boundary segmentation across 25 countries using stand
 
 ## Setup
 
+Requires Python >=3.11, <3.14. Uses [uv](https://docs.astral.sh/uv/) for dependency management.
+
 ```bash
 git clone --recurse-submodules https://github.com/fieldsoftheworld/ftw-prue.git
 cd ftw-prue
 
-pip install -e .               # core: training + eval
-pip install -e ".[gfm]"       # + foundation model encoders
-pip install -e ".[sam2]"      # + SAM2 finetuning
-pip install -e ".[eval]"      # + PRUE evaluation framework
-pip install -e ".[dev]"       # + pytest, ruff
-pip install -e ".[all]"       # everything
+uv pip install -e .               # core: training + eval
+uv pip install -e ".[gfm]"       # + foundation model encoders
+uv pip install -e ".[sam2]"      # + SAM2 finetuning
+uv pip install -e ".[eval]"      # + PRUE evaluation framework
+uv pip install -e ".[dev]"       # + pytest, ruff
+uv pip install -e ".[all]"       # everything
 
 # Mask2Former (requires vendored detectron2)
-pip install -e vendor/detectron2/ --no-build-isolation
-pip install -e ".[m2f]"
+uv pip install -e vendor/detectron2/ --no-build-isolation
+uv pip install -e ".[m2f]"
 ```
 
 Download the FTW dataset per the [ftw-baselines instructions](https://github.com/fieldsoftheworld/ftw-baselines) and place it at `./data/ftw` (or set `FTW_DATA_DIR`).
@@ -98,8 +100,8 @@ python -m ftw_tools.cli model test \
   --out results.json
 
 # PRUE unified evaluation (SAM, DECODE, DelineateAnything, Mask2Former)
-python scripts/run_model_inference.py --model decode --weights /path/to/ckpt --data-dir ./data/ftw
-python scripts/evaluate_by_country.py --detections results.pkl --data-dir ./data/ftw
+python scripts/run_model_inference.py --model decode --model_weights /path/to/ckpt --data_dir ./data/ftw --output_dir ./results
+python scripts/evaluate_by_country.py --model_detections '{"decode": "./results/decode_detections_belgium.pkl"}' --data_dir ./data/ftw --output_dir ./results
 ```
 
 ## Feature extraction

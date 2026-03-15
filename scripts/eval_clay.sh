@@ -3,6 +3,10 @@
 # =========================================
 # BASIC SETUP
 # =========================================
+# Resolve repo root (parent of scripts/) so Clay's "src" package is importable
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export PYTHONPATH="${REPO_ROOT}/pretrained/models/clay:${PYTHONPATH:-}"
+
 AGGREGATE_SCRIPT="scripts/aggregate.py"
 RESULT_DIR_BASE="./results"
 

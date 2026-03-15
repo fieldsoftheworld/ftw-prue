@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Resolve repo root so Clay's "src" package is importable (for clay / clay finetuned)
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export PYTHONPATH="${REPO_ROOT}/pretrained/models/clay:${PYTHONPATH:-}"
+
 AGGREGATE_SCRIPT="scripts/aggregate.py"
 RESULT_DIR_BASE="./results"
 
@@ -97,10 +101,11 @@ for MODEL_NAME in "${!ckpt_map[@]}"; do
   for COUNTRY_NAME in "${FULL_DATA_COUNTRIES[@]}"; do
     country_start=$(date +%s)
 
+    DATA_DIR="${FTW_DATA_DIR:-./data/ftw}"
     if [[ "$INPUT_TYPE" == "features" ]]; then
       python -m ftw_tools.cli model test \
         --model "$CKPT_PATH" --countries "$COUNTRY_NAME" --test_split "$COUNTRY_SPLIT" \
-        --input_type "features" --dir ./data/ftw --gpu "$GPU" \
+        --input_type "features" --dir "$DATA_DIR" --gpu "$GPU" \
         --feat_root "$FEAT_ROOT_BASE/$MODEL_NAME" --encoder_ckpt_path "$ENCODER_CKPT_PATH" \
         --backbone "$MODEL_NAME" --model_predicts_3_classes --test_on_3_classes \
         --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
@@ -110,7 +115,7 @@ for MODEL_NAME in "${!ckpt_map[@]}"; do
       python -m ftw_tools.cli model test \
         --model "$CKPT_PATH" --backbone "$MODEL_NAME" --encoder_ckpt_path "$ENCODER_CKPT_PATH" \
         --countries "$COUNTRY_NAME" --test_split "$COUNTRY_SPLIT" \
-        --input_type "images_noaug" --dir ./data/ftw --gpu "$GPU" \
+        --input_type "images_noaug" --dir "$DATA_DIR" --gpu "$GPU" \
         --model_predicts_3_classes --test_on_3_classes \
         --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
         2>&1 | tee -a "$LOG_FILE"

@@ -23,6 +23,7 @@ model:
     model: gfm                                  # pretrained | clay | croma | decur | dofa | dinov3 | galileo | prithvi | satlas | softcon | terrafm | terramind
     backbone: clay                              # null | clay | croma | decur | dofa | dinov3 | galileo | prithvi | satlas | softcon | terrafm | terramind
     weights: true
+    freeze_backbone: false                      # Clay full finetuning only: encoder trainable (default for GFM is true = frozen)
     patch_weights : false
     in_channels: 8
     num_classes: 3

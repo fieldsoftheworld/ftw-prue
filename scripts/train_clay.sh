@@ -15,7 +15,14 @@ set -e
 #
 # EXAMPLES:
 #   ./train_clay.sh a online
+#   FTW_DATA_DIR=/path/to/ftw ./train_clay.sh a online
 # ==========================================================
+
+# Run from repo root so config/data paths and PYTHONPATH are correct
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+export PYTHONPATH="${REPO_ROOT}/pretrained/models/clay:${PYTHONPATH:-}"
 
 # ------------------------------
 # REQUIRED ARG
@@ -54,11 +61,17 @@ EXP_NAME="clay"
 INPUT_TYPE="images_noaug"
 
 WORK_DIR="$(pwd)"
+DATA_ROOT="${FTW_DATA_DIR:-$WORK_DIR/data/ftw}"
 LOG_DIR="$WORK_DIR/logs"
 CONFIG_PATH="$WORK_DIR/configs/release/3_class/vit.yaml"
 PROJECT="FTW-gfm"
 
 mkdir -p "$LOG_DIR"
+
+if [ ! -d "$DATA_ROOT" ]; then
+  echo "❌ ERROR: Data dir not found: $DATA_ROOT (set FTW_DATA_DIR if needed)"
+  exit 1
+fi
 
 echo "🚀 Clay finetuning (images_noaug)"
 echo "🔑 Sweep key : $KEY"
@@ -80,22 +93,24 @@ patch=8
 input_size=256
 
 # ------------------------------
-# Data pipeline (Clay)
+# Data pipeline (Clay, full finetuning: encoder + decoder, images_noaug)
 # ------------------------------
 DATA_ARGS="
+  --data.dict_kwargs.root $DATA_ROOT
   --data.input_type images_noaug
   --data.preprocessing clay
   --data.dict_kwargs.metadata_path $WORK_DIR/configs/metadata.yaml
 "
 
 # ------------------------------
-# Launch training
+# Launch training (full finetuning: encoder + decoder, encoder NOT frozen)
 # ------------------------------
 python -m ftw_tools.cli model fit \
   --config "$CONFIG_PATH" -- \
   --model.model gfm \
   --model.backbone clay \
   --model.weights "$WEIGHTS_PATH" \
+  --model.freeze_backbone false \
   --model.lr "$LR" \
   --model.model_kwargs.hidden_dim "$hidden_dim" \
   --model.model_kwargs.patch_size "$patch" \

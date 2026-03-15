@@ -1,3 +1,5 @@
+import os
+
 import torch
 from .path_config import get_model_path
 
@@ -9,7 +11,10 @@ def get_encoder(model_name: str, device: torch.device, weights_path: str = None)
     Args:
         model_name: Name of the model
         device: torch.device
-        weights_path: Path to model weights (defaults to path_config.get_model_path())
+        weights_path: Path to model weights. If None, uses path_config.get_model_path().
+            If that path does not exist (e.g. finetuned full-model checkpoint where
+            encoder is inside the same checkpoint), builds encoder without loading
+            so the caller can load state from the full checkpoint.
 
     Returns:
         Encoder model
@@ -17,12 +22,22 @@ def get_encoder(model_name: str, device: torch.device, weights_path: str = None)
     model_name = model_name.lower()
 
     if weights_path is None:
-        weights_path = str(get_model_path(model_name))
+        try:
+            default_path = get_model_path(model_name)
+            default_path_str = str(default_path)
+            if os.path.isfile(default_path_str) or os.path.isdir(default_path_str):
+                weights_path = default_path_str
+            else:
+                # Default path missing: e.g. finetuned full-model ckpt (encoder inside same file)
+                weights_path = ""
+        except (ValueError, OSError):
+            weights_path = ""
 
     if model_name == "clay":
         from .models.clay.finetune.segment.factory import SegmentEncoder as ClayEncoder
 
-        weights = weights_path
+        # Empty path: encoder will be loaded from full-model checkpoint (finetuned clay)
+        ckpt_path = weights_path if weights_path and os.path.isfile(weights_path) else None
         encoder = ClayEncoder(
             mask_ratio=0.0,
             patch_size=8,
@@ -32,7 +47,7 @@ def get_encoder(model_name: str, device: torch.device, weights_path: str = None)
             heads=16,
             dim_head=64,
             mlp_ratio=4.0,
-            ckpt_path=weights,
+            ckpt_path=ckpt_path,
             freeze_encoder="all",
         ).to(device)
         # encoder.eval()

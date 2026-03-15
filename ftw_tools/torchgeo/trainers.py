@@ -70,7 +70,7 @@ class CustomSemanticSegmentationTask(BaseTask):
         lr: float = 1e-3,
         patience: int = 10,
         patch_weights: bool = False,
-        freeze_backbone: bool = False,
+        freeze_backbone: bool = True,
         freeze_decoder: bool = False,
         model_kwargs: dict[Any, Any] = dict(),
     ) -> None:
@@ -405,6 +405,12 @@ class CustomSemanticSegmentationTask(BaseTask):
         if self.hparams["freeze_backbone"] and model in ["unet", "deeplabv3+"]:
             for param in self.model.encoder.parameters():
                 param.requires_grad = False
+
+        if self.hparams["freeze_backbone"] and model == "gfm":
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+            self.backbone.eval()
+            print("[GFM] Encoder frozen (default). Set freeze_backbone=false for full finetuning (e.g. Clay).")
 
         if self.hparams["freeze_decoder"] and model in ["unet", "deeplabv3+"]:
             for param in self.model.decoder.parameters():

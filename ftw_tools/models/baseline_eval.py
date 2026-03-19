@@ -1,6 +1,6 @@
 import os
-from pathlib import Path
 import time
+from typing import List
 
 import numpy as np
 import torch
@@ -9,12 +9,18 @@ from torch.utils.data import DataLoader
 from torchgeo.trainers import BaseTask
 from torchmetrics import JaccardIndex, MetricCollection, Precision, Recall
 from tqdm import tqdm
+import rasterio.features
+import shapely.geometry
+from ftw_tools.postprocess.detections import Detections
+from ftw_tools.postprocess.evaluator import Evaluator
 
-from ftw_tools.postprocess.metrics import get_object_level_metrics, Evaluator, Detections
+from ftw_tools.postprocess.metrics import get_object_level_metrics
+from ftw_tools.torchgeo.preprocess import preprocess
 from ftw_tools.torchgeo.datasets import FTW
 from ftw_tools.torchgeo.trainers import CustomSemanticSegmentationTask
 from box import Box
 import yaml
+from lightning.pytorch.loggers import WandbLogger
 
 FULL_DATA_COUNTRIES = [
     "austria",
@@ -43,33 +49,34 @@ FULL_DATA_COUNTRIES = [
 
 
 def prepare_input(batch, input_type, device):
-    """Return model input based on run-time input_type, NOT model_type."""
-
-    # Case 1 — Feature precomputed input
-    if input_type == "features":
-        return batch["feat"].to(device)
-
-    # Case 2 — Any image mode: images / images_noaug / clay metadata style
-    if input_type in ("images", "images_noaug"):
-        # CLAY structured model (metadata-aware)
-        if "time" in batch and "latlon" in batch:
-            return {
-                "platform": batch["platform"],
-                "image": batch["image"].to(device),
-                "time": batch["time"].to(device),
-                "latlon": batch["latlon"].to(device),
-                "gsd": batch["gsd"].to(device),
-                "waves": batch["waves"].to(device),
-            }
-        # Other backbones: simple tensor input
+    """Return model-ready input dict/tensor depending on modality."""
+    # Image-only
+    if input_type == "images":
         return batch["image"].to(device)
+    
+    # Feature-only
+    if input_type == "features":
+        return {"feat": batch["feat"].to(device)}
+    
+    # Image + Feature fusion
+    if "images" in input_type and "features" in input_type:
+        return {
+            "image": batch["image"].to(device),
+            "feat": batch["feat"].to(device),
+        }
+    
+    # Clay model (includes spatiotemporal inputs)
+    if "time" in batch and "latlon" in batch:
+        return {
+            "platform": "sentinel-2-l2a",
+            "image": batch["image"].to(device),
+            "time": batch["time"].to(device),
+            "latlon": batch["latlon"].to(device),
+        }
 
-    raise ValueError(f"Unsupported input_type={input_type}")
+    raise ValueError(f"Unrecognized input_type: {input_type} or batch keys {batch.keys()}")
 
 
-# ----------------------------------------
-    # 2️⃣ Extract run_name & log_mode
-    # ----------------------------------------
 def extract_flag(cli_args, flag, default=None):
     """Extract a value like --flag value OR --flag=value"""
     if f"--{flag}" in cli_args:
@@ -85,6 +92,71 @@ def extract_flag(cli_args, flag, default=None):
             return val
     return default
 
+def semantic_to_detections(
+    mask: np.ndarray,
+    score_map: np.ndarray | None = None,
+    class_id: int = 0,
+    min_area: int = 0,
+) -> Detections:
+    """
+    Convert semantic mask + (optional) score map to Detections instance.
+    - mask: 2D binary (1 = foreground)
+    - score_map: 2D softmax prob (same shape)
+    - class_id: default 0 (field)
+    """
+    instance_masks = []
+    xyxys = []
+    confidences = []
+    class_ids = []
+
+    mask_uint8 = mask.astype(np.uint8)
+
+    for geom, val in rasterio.features.shapes(mask_uint8):
+        if val != 1:                 # Skip background
+            continue
+
+        poly = shapely.geometry.shape(geom)
+
+        if poly.area < min_area:     # Filter small regions
+            continue
+
+        # Rasterize single polygon to instance mask
+        inst_mask = rasterio.features.rasterize(
+            [geom],
+            out_shape=mask.shape,
+            fill=0,
+            default_value=1,
+            dtype=np.uint8,
+        )
+        if inst_mask.sum() == 0:
+            continue
+
+        instance_masks.append(inst_mask)
+
+        # Compute bounding box
+        ys, xs = np.where(inst_mask > 0)
+        x_min, x_max = xs.min(), xs.max()
+        y_min, y_max = ys.min(), ys.max()
+        xyxys.append([float(x_min), float(y_min), float(x_max), float(y_max)])
+
+        # Confidence = mean score inside instance
+        if score_map is not None:
+            conf = float(score_map[inst_mask > 0].mean()) if score_map[inst_mask > 0].size > 0 else 0.0
+        else:
+            conf = 1.0
+        confidences.append(conf)
+
+        class_ids.append(class_id)
+
+    if len(xyxys) == 0:
+        return Detections(xyxy=np.empty((0, 4), dtype=np.float32))
+
+    return Detections(
+        xyxy=np.asarray(xyxys, dtype=np.float32),
+        mask=np.asarray(instance_masks, dtype=np.uint8),
+        confidence=np.asarray(confidences, dtype=np.float32),
+        class_id=np.asarray(class_ids, dtype=np.int64),
+    )
 
 def fit(config, ckpt_path, cli_args):
     """Command to fit the model."""
@@ -146,7 +218,6 @@ def fit(config, ckpt_path, cli_args):
 
 def test(
     model_path,
-    backbone,
     test_split,
     dir,
     gpu,
@@ -158,284 +229,192 @@ def test(
     temporal_options,
     swap_order,
     input_type="images",
-    feat_root=None,
-    encoder_ckpt_path=None,
+    preprocess_type="ftw",
+    feat_root=None
 ):
-    """Command to test the model (FINAL UPDATED VERSION)."""
-
+    """Command to test the model."""
     print("Running test command")
     if gpu is None:
         gpu = -1
 
-    # -----------------------------
-    # Device
-    # -----------------------------
-    device = torch.device(f"cuda:{gpu}" if torch.cuda.is_available() and gpu >= 0 else "cpu")
+    # Merge `test_model` function into this test command
+    if torch.cuda.is_available() and gpu >= 0:
+        device = torch.device(f"cuda:{gpu}")
+    else:
+        device = torch.device("cpu")
 
-    # -----------------------------
-    # Load checkpoint
-    # -----------------------------
-    print("Loading model...")
+    print("Loading model")
     tic = time.time()
-
     trainer = CustomSemanticSegmentationTask.load_from_checkpoint(
-        model_path, map_location="cpu", strict=False
+        model_path, map_location="cpu"
     )
-    trainer.eval()
-
-    saved_model_type = trainer.hparams.get("model", "unet")
-    saved_backbone   = trainer.hparams.get("backbone", None)
-    print(f"  → saved_model_type={saved_model_type}, saved_backbone={saved_backbone}")
-
-    if input_type == "images_noaug": #This is for GFM experiments
-        model_type = "gfm"
-        backbone_name = backbone
-        preprocessing = backbone
-    elif input_type == "images": #This is for non-GFM experiments
-        model_type = saved_model_type
-        backbone_name = saved_backbone
-        preprocessing = "ftw"
-    elif input_type == "features":
-        model_type = None
-        backbone_name = None
-        preprocessing = None
-    else:
-        raise ValueError(f"Unsupported input_type={input_type}")
-
-    print(f"  → model_type={model_type}, backbone={backbone_name}")
-
-    # -------------------------------------------------------
-    # Decoder is always stored in trainer.model
-    # -------------------------------------------------------
-    decoder = trainer.model.to(device).eval()
-
-    # -------------------------------------------------------
-    # ENCODER 
-    # -------------------------------------------------------
-    encoder = None
-
-    if input_type == "features":
-        print("→ Feature mode: encoder NOT required.")
-        encoder = None
-
-    elif model_type != "gfm":
-        print("→ pretrained / UNET / baseline model: encoder NOT required if experimented on precomputed features on images with unet.")
-        encoder = None
-
-    else:
-        # -------------------------
-        # CASE 1 — Images-trained GFM checkpoint with encoder stored
-        # -------------------------
-        if hasattr(trainer, "backbone"):
-            encoder = trainer.backbone.to(device).eval()
-            print("→ Using encoder stored inside checkpoint")
-
-        # -------------------------
-        # CASE 2 — Feature-trained decoder: must rebuild encoder
-        # -------------------------
-        else:
-            print("→ Rebuilding encoder via pretrained_factory.get_encoder()")
-
-            from pretrained.pretrained_factory import get_encoder
-            encoder = get_encoder(
-                model_name=backbone_name,
-                device=device,
-                weights_path=encoder_ckpt_path,  
-            )
-            encoder.eval()
-
-            for p in encoder.parameters():
-                p.requires_grad = False
-
-            print(f"→ Loaded encoder weights from: {encoder_ckpt_path}")
-
+    model = trainer.model.eval().to(device)
     print(f"Model loaded in {time.time() - tic:.2f}s")
 
-    # ---------------------------------------------
-    # Build FTW dataset
-    # ---------------------------------------------
+    print("Creating dataloader")
+    tic = time.time()
+    
     if countries == ("all",):
         countries = FULL_DATA_COUNTRIES
     
-    # CLAY metadata file
-    metadata_path = None
-    if preprocessing == "clay":
-        repo_root = Path(__file__).resolve().parents[2]
-        metadata_path = str(repo_root / "configs" / "metadata.yaml")
-        print(f"Using CLAY metadata file: {metadata_path}")
-
-    print("Creating dataloader...")
-    tic = time.time()
-
+    # import code;code.interact(local=dict(globals(), **locals()));
+    preprocess_fn = preprocess(preprocess_type=preprocess_type,
+                               input_type=input_type)
+    
     ds = FTW(
         root=dir,
         countries=countries,
         split=test_split,
+        transforms=preprocess_fn,
         load_boundaries=test_on_3_classes,
         temporal_options=temporal_options,
         swap_order=swap_order,
         input_type=input_type,
         feat_root=feat_root,
-        preprocessing=preprocessing,
-        metadata_path=metadata_path,
     )
-
     dl = DataLoader(ds, batch_size=64, shuffle=False, num_workers=12)
-    print(f"  → Loaded {len(ds)} samples in {time.time() - tic:.2f}s")
+    print(f"Created dataloader with {len(ds)} samples in {time.time() - tic:.2f}s")
+    # import code;code.interact(local=dict(globals(), **locals()));
 
-    # ---------------------------------------------
-    # Metrics
-    # ---------------------------------------------
     if test_on_3_classes:
-        metrics = MetricCollection([
-            JaccardIndex(task="multiclass", average="none", num_classes=3, ignore_index=3),
-            Precision(task="multiclass", average="none", num_classes=3, ignore_index=3),
-            Recall(task="multiclass", average="none", num_classes=3, ignore_index=3),
-        ]).to(device)
+        metrics = MetricCollection(
+            [
+                JaccardIndex(
+                    task="multiclass", average="none", num_classes=3, ignore_index=3
+                ),
+                Precision(
+                    task="multiclass", average="none", num_classes=3, ignore_index=3
+                ),
+                Recall(
+                    task="multiclass", average="none", num_classes=3, ignore_index=3
+                ),
+            ]
+        ).to(device)
     else:
-        metrics = MetricCollection([
-            JaccardIndex(task="multiclass", average="none", num_classes=2, ignore_index=3),
-            Precision(task="multiclass", average="none", num_classes=2, ignore_index=3),
-            Recall(task="multiclass", average="none", num_classes=2, ignore_index=3),
-        ]).to(device)
+        metrics = MetricCollection(
+            [
+                JaccardIndex(
+                    task="multiclass", average="none", num_classes=2, ignore_index=3
+                ),
+                Precision(
+                    task="multiclass", average="none", num_classes=2, ignore_index=3
+                ),
+                Recall(
+                    task="multiclass", average="none", num_classes=2, ignore_index=3
+                ),
+            ]
+        ).to(device)
 
-    # ---------------------------------------------
-    # Eval loop
-    # ---------------------------------------------
-    all_tps = all_fps = all_fns = 0
-    num_classes = 3 if model_predicts_3_classes else 2
+    all_tps = 0
+    all_fps = 0
+    all_fns = 0
+
+    all_gt_dets: List[Detections] = []
+    all_pred_dets: List[Detections] = []
     
-    all_gt_dets = []
-    all_pred_dets = []
-    image_ids = []
-    img_id_counter = 0
-
+    if model_predicts_3_classes:
+        num_classes = 3
+    else:
+        num_classes = 2
     for batch in tqdm(dl):
         x = prepare_input(batch, input_type, device)
+       
         masks = batch["mask"].to(device)
 
         with torch.inference_mode():
-            if model_type == "gfm":
-                feats = encoder(x)
-                logits = decoder(feats)
-            elif model_type == "pretrained":
-                logits = decoder(x)
-            else:
-                logits = decoder(x)
+            logits= model(x)[:, :num_classes, :, :]
+            probs = torch.softmax(logits, dim=1)
+            outputs = probs.argmax(dim=1)
 
-            logits = logits[:, :num_classes, :, :]
-            outputs = logits.argmax(dim=1)
-
-        # 3 → 2 class projection
         if model_predicts_3_classes:
-            mapped = torch.zeros_like(outputs)
-            mapped[outputs == 1] = 1
-            outputs = mapped
+            new_outputs = torch.zeros(
+                outputs.shape[0], outputs.shape[1], outputs.shape[2], device=device
+            )
+            new_outputs[outputs == 2] = 0  # Boundary pixels
+            new_outputs[outputs == 0] = 0  # Background pixels
+            new_outputs[outputs == 1] = 1  # Crop pixels
+            outputs = new_outputs
         else:
             if test_on_3_classes:
-                raise ValueError("Model predicts 2 classes but test_on_3_classes=True")
+                raise ValueError(
+                    "Cannot test on 3 classes when the model was trained on 2 classes"
+                )
 
         metrics.update(outputs, masks)
+        outputs = outputs.cpu().numpy().astype(np.uint8)
+        masks = masks.cpu().numpy().astype(np.uint8)
 
-        # Object metrics
-        out_np = outputs.cpu().numpy().astype(np.uint8)
-        mask_np = masks.cpu().numpy().astype(np.uint8)
+        # Use class 1 (crop) probabilities as foreground scores
+        if probs.shape[1] > 1:
+            crop_probs_np = probs[:, 1, :, :].cpu().numpy()  # [B, H, W]
+        else:
+            # In case of a single-channel logits (rare), just use sigmoid-like
+            crop_probs_np = probs[:, 0, :, :].cpu().numpy()
 
-        for i in range(len(out_np)):
-            t, f, n = get_object_level_metrics(mask_np[i], out_np[i], iou_threshold)
-            all_tps += t
-            all_fps += f
-            all_fns += n
-            
-            # COCO metrics - convert masks to Detections
-            # Use probability from logits for predictions if available, else 1.0
-            # Since logits shape is [B, C, H, W], we take softmax for the predicted class
-            probs = torch.softmax(logits[i], dim=0)
-            pred_conf = probs[1].cpu().numpy() if num_classes == 2 else probs[1:].max(dim=0)[0].cpu().numpy()
-            
-            pred_dets = Detections(out_np[i], confidence_map=pred_conf)
-            gt_dets = Detections(mask_np[i])
-            
-            all_pred_dets.append(pred_dets)
-            all_gt_dets.append(gt_dets)
-            image_ids.append(img_id_counter)
-            img_id_counter += 1
+        batch_size = len(outputs)
+        for i in range(batch_size):
+            output = outputs[i]
+            mask = masks[i]
+            score_map = crop_probs_np[i]
 
-    # ---------------------------------------------
-    # Aggregate results
-    # ---------------------------------------------
-    results   = metrics.compute()
+            tps, fps, fns = get_object_level_metrics(
+                mask, output, iou_threshold=iou_threshold
+            )
+            all_tps += tps
+            all_fps += fps
+            all_fns += fns
+
+            gt_det = semantic_to_detections(mask, score_map=None, class_id=0)
+            pred_det = semantic_to_detections(output, score_map=score_map, class_id=0)
+
+            all_gt_dets.append(gt_det)
+            all_pred_dets.append(pred_det)
+
+    results = metrics.compute()
+    pixel_level_iou = results["MulticlassJaccardIndex"][1].item()
+    pixel_level_precision = results["MulticlassPrecision"][1].item()
+    pixel_level_recall = results["MulticlassRecall"][1].item()
+
+    if all_tps + all_fps > 0:
+        object_precision = all_tps / (all_tps + all_fps)
+    else:
+        object_precision = float("nan")
+
+    if all_tps + all_fns > 0:
+        object_recall = all_tps / (all_tps + all_fns)
+    else:
+        object_recall = float("nan")
     
-    coco_evaluator = Evaluator(iou_threshold=iou_threshold, metrics=["coco"], image_ids=image_ids)
-    coco_results = coco_evaluator.evaluate(all_gt_dets, all_pred_dets)
-    
-    pixel_iou = results["MulticlassJaccardIndex"][1].item()
-    pixel_prec = results["MulticlassPrecision"][1].item()
-    pixel_recall = results["MulticlassRecall"][1].item()
+    if not (np.isnan(object_precision) or np.isnan(object_recall)) and (object_precision + object_recall) > 0:
+        object_f1 = 2 * object_precision * object_recall / (object_precision + object_recall)
+    else:
+        object_f1 = float("nan")
 
-    object_precision = all_tps / (all_tps + all_fps) if (all_tps + all_fps) > 0 else float("nan")
-    object_recall    = all_tps / (all_tps + all_fns) if (all_tps + all_fns) > 0 else float("nan")
-    object_f1 = (
-        2 * object_precision * object_recall / (object_precision + object_recall)
-        if not (np.isnan(object_precision) or np.isnan(object_recall))
-        and (object_precision + object_recall) > 0
-        else float("nan")
-    )
+    evalu = Evaluator(metrics=["coco"])
+    eval_results = evalu.evaluate(all_gt_dets, all_pred_dets)
+    coco_map_50_95 = eval_results.get("coco_AP", float("nan"))       # AP@[0.5:0.95]
+    coco_map_50 = eval_results.get("coco_AP50", float("nan"))   # AP@0.5
 
-    # ---------------------------------------------
-    # Print results
-    # ---------------------------------------------
-    print(f"\nPixel IoU (crop):        {pixel_iou:.4f}")
-    print(f"Pixel Precision (crop):  {pixel_prec:.4f}")
-    print(f"Pixel Recall (crop):     {pixel_recall:.4f}")
+    print(f"Pixel IoU (crop):        {pixel_level_iou:.4f}")
+    print(f"Pixel Precision (crop):  {pixel_level_precision:.4f}")
+    print(f"Pixel Recall (crop):     {pixel_level_recall:.4f}")
     print(f"Object Precision:        {object_precision:.4f}")
     print(f"Object Recall:           {object_recall:.4f}")
     print(f"Object F1:               {object_f1:.4f}")
-    
-    if coco_results:
-        print("\nCOCO Metrics:")
-        for k, v in coco_results.items():
-            print(f"{k:20}: {v:.2f}")
+    print(f"COCO mAP@0.5:        {coco_map_50:.4f}")
+    print(f"COCO mAP@0.5:0.95:   {coco_map_50_95:.4f}")
 
-    # ---------------------------------------------
-    # Save CSV row
-    # ---------------------------------------------
     country_str = ";".join(countries)
     if set(countries) == set(FULL_DATA_COUNTRIES):
         country_str = "all"
 
     if out is not None:
-        header = (
-            "train_checkpoint,test_countries,pixel_level_iou,"
-            "pixel_level_precision,pixel_level_recall,"
-            "object_level_precision,object_level_recall,object_level_f1,"
-            "coco_AP,coco_AP50,coco_AP75,coco_APs,coco_APm,coco_APl\n"
-        )
-        file_exists = os.path.exists(out)
-
+        if not os.path.exists(out):
+            with open(out, "w") as f:
+                f.write(
+                    "train_checkpoint,test_countries,pixel_level_iou,pixel_level_precision,pixel_level_recall,object_level_precision,object_level_recall,object_level_f1,coco_map_50,coco_map_50_95\n"
+                )
         with open(out, "a") as f:
-            if not file_exists:
-                f.write(header)
-            
-            c_ap = coco_results.get('coco_AP', float('nan'))
-            c_ap50 = coco_results.get('coco_AP50', float('nan'))
-            c_ap75 = coco_results.get('coco_AP75', float('nan'))
-            c_aps = coco_results.get('coco_APs', float('nan'))
-            c_apm = coco_results.get('coco_APm', float('nan'))
-            c_apl = coco_results.get('coco_APl', float('nan'))
-                
             f.write(
-                f"{model_path},{country_str},"
-                f"{round(pixel_iou,3)},"
-                f"{round(pixel_prec,3)},"
-                f"{round(pixel_recall,3)},"
-                f"{round(object_precision,3)},"
-                f"{round(object_recall,3)},"
-                f"{round(object_f1,3)},"
-                f"{round(c_ap,3)},"
-                f"{round(c_ap50,3)},"
-                f"{round(c_ap75,3)},"
-                f"{round(c_aps,3)},"
-                f"{round(c_apm,3)},"
-                f"{round(c_apl,3)}\n"
+                f"{model_path},{country_str},{round(pixel_level_iou,3)},{round(pixel_level_precision,3)},{round(pixel_level_recall,3)},{round(object_precision,3)},{round(object_recall,3)},{round(object_f1,3)},{round(coco_map_50,3)},{round(coco_map_50_95,3)}\n"
             )

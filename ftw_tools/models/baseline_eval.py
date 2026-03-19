@@ -67,12 +67,17 @@ def prepare_input(batch, input_type, device):
     
     # Clay model (includes spatiotemporal inputs)
     if "time" in batch and "latlon" in batch:
-        return {
+        res = {
             "platform": "sentinel-2-l2a",
             "image": batch["image"].to(device),
             "time": batch["time"].to(device),
             "latlon": batch["latlon"].to(device),
         }
+        if "gsd" in batch:
+            res["gsd"] = batch["gsd"].to(device)
+        if "waves" in batch:
+            res["waves"] = batch["waves"].to(device)
+        return res
 
     raise ValueError(f"Unrecognized input_type: {input_type} or batch keys {batch.keys()}")
 
@@ -230,7 +235,9 @@ def test(
     swap_order,
     input_type="images",
     preprocess_type="ftw",
-    feat_root=None
+    feat_root=None,
+    backbone=None,
+    encoder_ckpt_path=None,
 ):
     """Command to test the model."""
     print("Running test command")
@@ -245,10 +252,17 @@ def test(
 
     print("Loading model")
     tic = time.time()
+    
+    kwargs = {}
+    if backbone is not None:
+        kwargs["backbone"] = backbone
+    if encoder_ckpt_path is not None:
+        kwargs["weights"] = encoder_ckpt_path
+        
     trainer = CustomSemanticSegmentationTask.load_from_checkpoint(
-        model_path, map_location="cpu"
+        model_path, map_location="cpu", **kwargs
     )
-    model = trainer.model.eval().to(device)
+    model = trainer.eval().to(device)
     print(f"Model loaded in {time.time() - tic:.2f}s")
 
     print("Creating dataloader")
@@ -258,14 +272,12 @@ def test(
         countries = FULL_DATA_COUNTRIES
     
     # import code;code.interact(local=dict(globals(), **locals()));
-    preprocess_fn = preprocess(preprocess_type=preprocess_type,
-                               input_type=input_type)
-    
     ds = FTW(
         root=dir,
         countries=countries,
         split=test_split,
-        transforms=preprocess_fn,
+        preprocessing=None if input_type == "features" else (backbone if backbone is not None else preprocess_type),
+        metadata_path="/u/subashk/storage/ftw-ablation/FTW-Bakeoff/ftw-baselines-2/configs/metadata.yaml",
         load_boundaries=test_on_3_classes,
         temporal_options=temporal_options,
         swap_order=swap_order,
@@ -322,7 +334,10 @@ def test(
         masks = batch["mask"].to(device)
 
         with torch.inference_mode():
-            logits= model(x)[:, :num_classes, :, :]
+            if input_type == "features" and getattr(trainer, "hparams", {}).get("model") == "gfm":
+                logits = trainer.model(x)[:, :num_classes, :, :]
+            else:
+                logits = model(x)[:, :num_classes, :, :]
             probs = torch.softmax(logits, dim=1)
             outputs = probs.argmax(dim=1)
 

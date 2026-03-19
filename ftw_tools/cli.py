@@ -360,22 +360,22 @@ def test(
     from ftw_tools.models.baseline_eval import test
 
     test(
-    model,
-    backbone,
-    test_split,
-    dir,
-    gpu,
-    countries,
-    iou_threshold,
-    out,
-    model_predicts_3_classes,
-    test_on_3_classes,
-    temporal_options,
-    swap_order,
-    input_type,
-    feat_root,
-    encoder_ckpt_path
-)
+        model_path=model,
+        test_split=test_split,
+        dir=dir,
+        gpu=gpu,
+        countries=countries,
+        iou_threshold=iou_threshold,
+        out=out,
+        model_predicts_3_classes=model_predicts_3_classes,
+        test_on_3_classes=test_on_3_classes,
+        temporal_options=temporal_options,
+        swap_order=swap_order,
+        input_type=input_type,
+        feat_root=feat_root,
+        backbone=backbone,
+        encoder_ckpt_path=encoder_ckpt_path
+    )
 
 
 @model.command("download", help="Download model checkpoints")

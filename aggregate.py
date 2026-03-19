@@ -23,6 +23,8 @@ def calculate_overall_average_metrics(directory_path: str, expr_type:str="main")
         'object_level_precision',
         'object_level_recall',
         'object_level_f1',
+        'coco_map_50',
+        'coco_map_50_95',
         'coco_AP',
         'coco_AP50',
         'coco_AP75',
@@ -88,14 +90,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--expr", 
         type=str, 
-        required=True, # Ensure the user still provides this one
+        default="main", # Ensure the user still provides this one
         help="The name of the experiment type whose results to average (e.g., main or supp)."
     )
 
     # Define 'result_dir' as an optional argument with a flag and a default value
     parser.add_argument(
         "--result_dir",
-        default="/u/subashk/storage/ftw-prue/results", # Use your actual path
+        default="/projects/bdbk/subashk/ftw-prue-clayfinetuned/results", # Use your actual path
         type=str,
         help="The base directory containing the model results (e.g., /u/path/to/results)."
     )

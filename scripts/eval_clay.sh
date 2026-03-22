@@ -5,6 +5,7 @@
 # =========================================
 # Resolve repo root (parent of scripts/) so Clay's "src" package is importable
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT" || exit 1
 export PYTHONPATH="${REPO_ROOT}/pretrained/models/clay:${PYTHONPATH:-}"
 
 AGGREGATE_SCRIPT="scripts/aggregate.py"
@@ -16,6 +17,7 @@ COUNTRY_SPLIT=${COUNTRY_SPLIT:-test}
 GPU=0
 
 echo "🚀 Clay Full-Model Evaluation | Expr: $EXPR_TYPE | Input: images_noaug"
+echo "   COCO metrics: prue_eval.eval_gfms → pycocotools COCOeval (segm); no prue_eval.evaluator"
 
 # =========================================
 # Clay FULL checkpoint (encoder + decoder)
@@ -50,7 +52,7 @@ model_start=$(date +%s)
 for COUNTRY_NAME in "${FULL_DATA_COUNTRIES[@]}"; do
   country_start=$(date +%s)
 
-  python -m ftw_tools.cli model test \
+  python -m prue_eval.eval_gfms \
     --model "$CKPT_PATH" \
     --backbone clay \
     --countries "$COUNTRY_NAME" \
@@ -60,7 +62,7 @@ for COUNTRY_NAME in "${FULL_DATA_COUNTRIES[@]}"; do
     --gpu "$GPU" \
     --model_predicts_3_classes \
     --test_on_3_classes \
-    --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
+    --out "results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json" \
     2>&1 | tee -a "$LOG_FILE"
 
   country_end=$(date +%s)
@@ -79,7 +81,7 @@ printf "✅ Finished Clay in %dm %ds\n\n" \
 # =========================================
 echo "📊 Running aggregation..."
 python "$AGGREGATE_SCRIPT" \
-  --model clay \
+  --model "$MODEL_NAME" \
   --result_dir "$RESULT_DIR_BASE" \
   --expr "$EXPR_TYPE"
 

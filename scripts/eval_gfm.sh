@@ -2,6 +2,7 @@
 
 # Resolve repo root so Clay's "src" package is importable (for clay / clay finetuned)
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT" || exit 1
 export PYTHONPATH="${REPO_ROOT}/pretrained/models/clay:${PYTHONPATH:-}"
 
 AGGREGATE_SCRIPT="scripts/aggregate.py"
@@ -26,6 +27,7 @@ export COUNTRY_SPLIT=${COUNTRY_SPLIT:-test}
 GPU=0
 
 echo "GFM Evaluation | Model: ${MODEL_FILTER:-ALL} | Expr: $EXPR_TYPE | Input: $INPUT_TYPE"
+echo "  Backend: prue_eval.eval_gfms (COCO via pycocotools COCOeval, not prue_eval.evaluator)"
 
 ENCODER_DIR="gfm_ckpts/encoders"
 
@@ -102,22 +104,40 @@ for MODEL_NAME in "${!ckpt_map[@]}"; do
     country_start=$(date +%s)
 
     DATA_DIR="${FTW_DATA_DIR:-./data/ftw}"
+    ENC_OPT=()
+    if [[ "$ENCODER_CKPT_PATH" != "null" ]]; then
+      ENC_OPT+=(--encoder_ckpt_path "$ENCODER_CKPT_PATH")
+    fi
+
     if [[ "$INPUT_TYPE" == "features" ]]; then
-      python -m ftw_tools.cli model test \
-        --model "$CKPT_PATH" --countries "$COUNTRY_NAME" --test_split "$COUNTRY_SPLIT" \
-        --input_type "features" --dir "$DATA_DIR" --gpu "$GPU" \
-        --feat_root "$FEAT_ROOT_BASE/$MODEL_NAME" --encoder_ckpt_path "$ENCODER_CKPT_PATH" \
-        --backbone "$MODEL_NAME" --model_predicts_3_classes --test_on_3_classes \
-        --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
+      python -m prue_eval.eval_gfms \
+        --model "$CKPT_PATH" \
+        --backbone "$MODEL_NAME" \
+        --countries "$COUNTRY_NAME" \
+        --test_split "$COUNTRY_SPLIT" \
+        --input_type "features" \
+        --dir "$DATA_DIR" \
+        --gpu "$GPU" \
+        --feat_root "$FEAT_ROOT_BASE/$MODEL_NAME" \
+        "${ENC_OPT[@]}" \
+        --model_predicts_3_classes \
+        --test_on_3_classes \
+        --out "results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json" \
         2>&1 | tee -a "$LOG_FILE"
 
     else
-      python -m ftw_tools.cli model test \
-        --model "$CKPT_PATH" --backbone "$MODEL_NAME" --encoder_ckpt_path "$ENCODER_CKPT_PATH" \
-        --countries "$COUNTRY_NAME" --test_split "$COUNTRY_SPLIT" \
-        --input_type "images_noaug" --dir "$DATA_DIR" --gpu "$GPU" \
-        --model_predicts_3_classes --test_on_3_classes \
-        --out results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json \
+      python -m prue_eval.eval_gfms \
+        --model "$CKPT_PATH" \
+        --backbone "$MODEL_NAME" \
+        --countries "$COUNTRY_NAME" \
+        --test_split "$COUNTRY_SPLIT" \
+        --input_type "images_noaug" \
+        --dir "$DATA_DIR" \
+        --gpu "$GPU" \
+        "${ENC_OPT[@]}" \
+        --model_predicts_3_classes \
+        --test_on_3_classes \
+        --out "results/$MODEL_NAME/${MODEL_NAME}_${COUNTRY_NAME}_${EXPR_TYPE}.json" \
         2>&1 | tee -a "$LOG_FILE"
     fi
 

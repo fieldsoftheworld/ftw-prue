@@ -137,11 +137,14 @@ pytest tests/ -v
 ## Citation
 
 ```bibtex
-@inproceedings{prue2025,
-  title={PRUE: A Practical Recipe for Field Boundary Segmentation at Scale},
-  author={TODO},
-  booktitle={CVPR},
-  year={2025}
+@misc{muhawenayo2026pruepracticalrecipefield,
+      title={PRUE: A Practical Recipe for Field Boundary Segmentation at Scale}, 
+      author={Gedeon Muhawenayo and Caleb Robinson and Subash Khanal and Zhanpei Fang and Isaac Corley and Alexander Wollam and Tianyi Gao and Leonard Strnad and Ryan Avery and Lyndon Estes and Ana M. Tárano and Nathan Jacobs and Hannah Kerner},
+      year={2026},
+      eprint={2603.27101},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2603.27101}, 
 }
 ```
 

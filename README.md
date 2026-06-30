@@ -2,7 +2,7 @@
 
 **A Practical Recipe for Field Boundary Segmentation at Scale**
 
-CVPR 2025 &middot; [Paper](https://arxiv.org/abs/2603.27101) &middot; [Fields of the World](https://github.com/fieldsoftheworld/ftw-baselines)
+CVPR 2026 &middot; [Paper](https://arxiv.org/abs/2603.27101) &middot; [Fields of the World](https://github.com/fieldsoftheworld/ftw-baselines)
 
 ---
 

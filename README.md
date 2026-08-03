@@ -8,6 +8,8 @@ CVPR 2026 &middot; [Paper](https://arxiv.org/abs/2603.27101) &middot; [Fields of
 
 This repo benchmarks field boundary segmentation across 21 countries using standard segmentation models, geospatial foundation model (GFM) encoders, and custom architectures (DECODE, SAM2) on the [Fields of the World (FTW)](https://github.com/fieldsoftheworld/ftw-baselines) dataset.
 
+Learn to use PRUE from this agricultural monitoring hands-on tutorial [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/fieldsoftheworld/iclr2026-ml4rs-tutorial/blob/main/1.0-agriculture-monitoring-with-ftw.ipynb)
+
 ## Setup
 
 Requires Python >=3.11, <3.14. Uses [uv](https://docs.astral.sh/uv/) for dependency management.

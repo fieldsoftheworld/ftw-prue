@@ -1,0 +1,18 @@
+# Free Hugging Face Spaces sleep after 48 hours without traffic.
+# Ping the FTW leaderboard Space twice a day so it stays awake.
+name: Keep leaderboard Space awake
+
+on:
+  schedule:
+    - cron: "17 */12 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping the Space
+        run: curl -fsS -o /dev/null --retry 3 --retry-delay 30 --max-time 120 https://fieldsoftheworld-ftw-leaderboard.hf.space/
